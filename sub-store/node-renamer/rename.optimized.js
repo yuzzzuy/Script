@@ -263,12 +263,11 @@ const inputName =
       : inArg.match
   ] || "";
 const regionStyle = parseRegionStyle(inArg.region);
-const SERIAL_PLACEHOLDER = "\u0000SERIAL\u0000";
 const serialBaseNames = new WeakMap();
 const proxyRanks = new WeakMap();
 const proxySortKeys = new WeakMap();
 const proxySerialKeys = new WeakMap();
-const DIRECT_RANK = 0;
+const proxyFields = new WeakMap();
 const NORMAL_RANK = 1;
 const UNRESOLVED_RANK = 2;
 const superscriptNumberMap = {
@@ -300,6 +299,9 @@ const abilityRules = [
   { regex: /\bai\b|人工智能/i, value: "AI" },
 ];
 const typeAliases = {
+  trojan: "tr",
+  vless: "vl",
+  vmess: "vm",
   shadowsocks: "ss",
   shadowsocksr: "ssr",
   "shadowsocks-r": "ssr",
@@ -375,7 +377,6 @@ function operator(proxies) {
 
   let result = proxies.filter(isProxyObject);
   const tagRules = parseTagRules(options.tags);
-  const matchedRecords = [];
 
   result.forEach(function renameProxy(proxy) {
     const originalName = stringify(proxy.name);
@@ -390,8 +391,7 @@ function operator(proxies) {
     }
 
     if (isDirectName(originalName)) {
-      proxy.name = originalName;
-      proxyRanks.set(proxy, DIRECT_RANK);
+      proxy.name = null;
       return;
     }
 
@@ -412,31 +412,21 @@ function operator(proxies) {
         rate,
         route
       );
-      matchedRecords.push({
-        proxy: proxy,
-        fields: fields,
-        country: matchedCountry,
-        originalName: originalName,
-      });
+      proxyFields.set(proxy, fields);
+      proxy.name = stringify(originalName);
+      proxySortKeys.set(
+        proxy,
+        buildProxySortKey(fields, matchedCountry, originalName)
+      );
+      proxySerialKeys.set(
+        proxy,
+        buildProxySerialKey(fields, matchedCountry, originalName)
+      );
       return;
     }
 
     proxy.name = joinName([options.special, originalName]);
     proxyRanks.set(proxy, UNRESOLVED_RANK);
-  });
-
-  const columnWidths = buildFormatColumnWidths(matchedRecords);
-
-  matchedRecords.forEach(function renderMatched(record) {
-    record.proxy.name = renderFormat(record.fields, columnWidths);
-    proxySortKeys.set(
-      record.proxy,
-      buildProxySortKey(record.fields, record.country, record.originalName)
-    );
-    proxySerialKeys.set(
-      record.proxy,
-      buildProxySerialKey(record.fields, record.country, record.originalName)
-    );
   });
 
   result = result.filter(function hasName(proxy) {
@@ -452,7 +442,24 @@ function operator(proxies) {
     }
   }
 
+  renderFinalNames(result);
+
   return result;
+}
+
+function renderFinalNames(proxies) {
+  const records = proxies
+    .filter(function hasFields(proxy) {
+      return getProxyRank(proxy) === NORMAL_RANK && proxyFields.has(proxy);
+    })
+    .map(function toRecord(proxy) {
+      return { proxy: proxy, fields: proxyFields.get(proxy) };
+    });
+  const columnWidths = buildFormatColumnWidths(records);
+
+  records.forEach(function renderRecord(record) {
+    record.proxy.name = renderFormat(record.fields, columnWidths);
+  });
 }
 
 function isDirectName(name) {
@@ -620,7 +627,7 @@ function buildMatchedFields(country, type, ability, tags, rate, route) {
     prefix: options.prefix,
     type: type,
     region: buildCountryDisplay(country),
-    serial: options.serial === "off" ? "" : SERIAL_PLACEHOLDER,
+    serial: "",
     route: route,
     rate: rate,
     ability: ability,
@@ -730,10 +737,7 @@ function padDisplay(value, width) {
 }
 
 function getDisplayWidth(value) {
-  return stringifyField(value)
-    .split(SERIAL_PLACEHOLDER)
-    .join("00")
-    .replace(/[^\x00-\xff]/g, "xx").length;
+  return stringifyField(value).replace(/[^\x00-\xff]/g, "xx").length;
 }
 
 function isEmptyField(value) {
@@ -776,10 +780,6 @@ function formatNameWithCode(index) {
 }
 
 function formatCountryName(countryName) {
-  if (/^[\u4E00-\u9FFF]{2}$/.test(countryName)) {
-    return countryName.charAt(0) + "　" + countryName.charAt(1);
-  }
-
   return countryName;
 }
 
@@ -833,8 +833,11 @@ function appendSerialNumbers(proxies) {
     }
 
     const serial = group.items.length + 1;
-    serialBaseNames.set(proxy, removeSerialPlaceholder(proxy.name));
-    proxy.name = insertSerialNumber(proxy.name, pad2(serial));
+    const fields = proxyFields.get(proxy);
+    if (fields) {
+      serialBaseNames.set(proxy, getSerialBaseNameFromFields(fields));
+      fields.serial = pad2(serial);
+    }
     group.items.push(proxy);
   });
 
@@ -869,37 +872,26 @@ function removeSingletonSerial(proxies) {
 
   groups.forEach(function removeOne(items) {
     if (items.length === 1 && hasFirstSerial(items[0])) {
-      items[0].name = getSerialBaseName(items[0]);
+      const fields = proxyFields.get(items[0]);
+      if (fields) {
+        fields.serial = "";
+      }
     }
   });
 
   return proxies;
 }
 
-function insertSerialNumber(name, serial) {
-  if (name.indexOf(SERIAL_PLACEHOLDER) !== -1) {
-    return name.replace(SERIAL_PLACEHOLDER, serial);
-  }
-
-  return name + FIELD_SEPARATOR + serial;
-}
-
-function removeSerialPlaceholder(name) {
-  if (name.indexOf(SERIAL_PLACEHOLDER) === -1) {
-    return name.replace(/[^A-Za-z0-9\u00C0-\u017F\u4E00-\u9FFF]+\d+$/, "");
-  }
-
-  return name
-    .replace(SERIAL_PLACEHOLDER, "")
-    .split(FIELD_SEPARATOR)
-    .filter(function keepPart(part) {
-      return part !== "";
-    })
-    .join(FIELD_SEPARATOR);
-}
-
 function getSerialBaseName(proxy) {
-  return serialBaseNames.get(proxy) || removeSerialPlaceholder(proxy.name);
+  return serialBaseNames.get(proxy) || stringify(proxy.name);
+}
+
+function getSerialBaseNameFromFields(fields) {
+  const serial = fields.serial;
+  fields.serial = "";
+  const name = renderFormat(fields);
+  fields.serial = serial;
+  return name;
 }
 
 function hasFirstSerial(proxy) {

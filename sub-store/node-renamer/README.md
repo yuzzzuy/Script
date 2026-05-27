@@ -22,11 +22,11 @@ serialBy=prefix,region
 | Field | 含义 | 来源 | 示例 |
 | --- | --- | --- | --- |
 | `prefix` | 自定义前缀 | 参数 `prefix` | `VIP` |
-| `region` | 国家/地区显示 | 节点名识别 + 参数 `region` | `🇭🇰 香　港（HK）` |
+| `region` | 国家/地区显示 | 节点名识别 + 参数 `region` | `🇭🇰 香港（HK）` |
 | `serial` | 编号 | 参数 `serial` / `serialBy` | `01` |
 | `route` | 线路描述，支持多个 | 节点名识别 + 参数 `route` | `IPLC 游戏 专线` |
 | `rate` | 倍率 | 节点名识别 + 参数 `rate` | `2×` |
-| `type` | 协议类型，会自动简写常见长类型 | 节点对象 `type` / `protocol` / `proxy-type` | `vless` / `hy2` |
+| `type` | 协议类型，按字典简写 | 节点对象 `type` / `protocol` / `proxy-type` | `vl` / `hy2` |
 | `ability` | 能力信息 | 内置识别 | `原生 GPT` |
 | `tags` | 自定义保留标签 | 参数 `tags` | `流媒` |
 
@@ -74,13 +74,13 @@ serialBy=prefix,region
 
 | 值 | 示例 |
 | --- | --- |
-| `all` | `🇭🇰 香　港（HK）` |
-| `flag-name` | `🇭🇰 香　港` |
+| `all` | `🇭🇰 香港（HK）` |
+| `flag-name` | `🇭🇰 香港` |
 | `flag` | `🇭🇰` |
-| `name` | `香　港` |
+| `name` | `香港` |
 | `code` | `HK` |
 | `full` | `Hong Kong` |
-| `name-code` | `香　港（HK）` |
+| `name-code` | `香港（HK）` |
 
 台湾省的国旗会统一显示为中国国旗。
 
@@ -169,9 +169,9 @@ prefix,type,region,extra,route,rate,ability,tags,name
 
 默认结构是：前缀、国家/地区、类型、编号、倍率、额外信息。倍率默认用 `[{rate}]` 包起来，例如 `[2×]`；线路、能力、自定义标签属于后面的额外信息。
 
-脚本会按当前输出批次自动做类似表格的左对齐：每个有值的 `format` 片段都会按同列最大宽度补空格，中文按双宽字符计算；空字段会跳过，不会为了空倍率列把后面的线路描述推远。
+脚本会在最终列表生成后，按每个 `format` 片段所在列的最长显示宽度补齐；中文按双宽字符计算。空字段会跳过，不会为了空倍率列把后面的线路描述推远。
 
-常见长协议类型会自动简写，例如 `shadowsocks -> ss`、`hysteria2 -> hy2`、`wireguard -> wg`、`shadowtls -> stls`。
+协议类型只按内置字典简写，字典没有的类型保留原样并参与最长宽度计算。例如 `trojan -> tr`、`vless -> vl`、`vmess -> vm`、`shadowsocks -> ss`、`hysteria2 -> hy2`、`wireguard -> wg`、`shadowtls -> stls`。
 
 ### `sort`
 
@@ -201,8 +201,8 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 
 排序固定规则：
 
-- `DIRECT` / `direct` 永远排最前。
-- 正常可识别地区的节点排中间。
+- `DIRECT` / `direct` 会被过滤。
+- 正常可识别地区的节点排前面。
 - 无法识别地区的节点排最后。
 
 ### `special`
@@ -231,7 +231,6 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 
 | 原始名称 | type | 说明 |
 | --- | --- | --- |
-| `DIRECT` | 空 | 直连节点 |
 | `Korea` | `trojan` | 韩国基础节点 |
 | `Korea 2x` | `trojan` | 韩国、2 倍 |
 | `Korea 家宽 6x 原生 GPT 流媒体` | `trojan` | 韩国、家宽、6 倍、原生、GPT、自定义标签 |
@@ -244,26 +243,25 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 输出示例：
 
 ```text
-DIRECT
-VIP 🇭🇰 香　港（HK） (vless)  01
-VIP 🇭🇰 香　港（HK） (vless)  02 [2×] IPLC 原生
-VIP 🇰🇷 韩　国（KR） (trojan) 01
-VIP 🇰🇷 韩　国（KR） (trojan) 02 [2×]
-VIP 🇰🇷 韩　国（KR） (trojan) 03 [6×] 家宽 原生 GPT 流媒
-VIP 🇰🇷 韩　国（KR） (vless)  04 家宽 AI   晚峰
-VIP 🇨🇳 台　湾（TW） (ss)     01 [3×] 游戏 GPT
+VIP 🇭🇰 香港（HK） (vl) 01
+VIP 🇭🇰 香港（HK） (vl) 02 [2×] IPLC 原生
+VIP 🇰🇷 韩国（KR） (tr) 01
+VIP 🇰🇷 韩国（KR） (tr) 02 [2×]
+VIP 🇰🇷 韩国（KR） (tr) 03 [6×] 家宽 原生 GPT 流媒
+VIP 🇰🇷 韩国（KR） (vl) 04 家宽 AI   晚峰
+VIP 🇨🇳 台湾（TW） (ss) 01 [3×] 游戏 GPT
 特殊 Fast-B1-1
 ```
 
 说明：
 
-- `DIRECT` 固定排最前。
+- `DIRECT` 会被过滤，不进入最终列表。
 - 香港、韩国、台湾省按地区排序并正常重命名。
 - 同地区内会先按 `type` 聚合，再按基础节点、倍率、额外信息长度排序。
 - 韩国节点同属 `prefix + region`，所以编号按最终排序结果连续递增。
 - `route=zh` 输出 `家宽`、`游戏` 这类中文线路描述。
 - 默认 `format` 使用 `[{rate}]`，所以 `rate=plain` 会显示为 `[2×]`、`[3×]`、`[6×]`。
-- `type` 放在地区后面并用 `({type})` 包起来；没有 `type` 时整块跳过。
+- `type` 会先按字典简写，再放在地区后面并用 `({type})` 包起来；没有 `type` 时整块跳过。
 - `原生`、`GPT`、`AI` 自动进入 `ability`。
 - `流媒体`、`晚高峰` 根据 `tags` 映射为 `流媒`、`晚峰`。
 - `Fast-B1-1` 无法识别国家/地区，所以加 `特殊` 并排最后。
