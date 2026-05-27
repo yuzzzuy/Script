@@ -32,6 +32,8 @@ const options = {
   route: parseRouteStyle(inArg.route),
   rate: parseRateStyle(inArg.rate),
   tags: inArg.tags === undefined ? "" : decodeURI(inArg.tags),
+  unresolved:
+    inArg.unresolved === undefined ? "特殊" : decodeURI(inArg.unresolved),
   blockquic: inArg.blockquic === undefined ? "" : decodeURI(inArg.blockquic),
 };
 
@@ -123,6 +125,10 @@ const inputName =
 const regionStyle = parseRegionStyle(inArg.region);
 const SERIAL_PLACEHOLDER = "\u0000SERIAL\u0000";
 const serialBaseNames = new WeakMap();
+const proxyRanks = new WeakMap();
+const DIRECT_RANK = 0;
+const NORMAL_RANK = 1;
+const UNRESOLVED_RANK = 2;
 const superscriptNumberMap = {
   0: "⁰",
   1: "¹",
@@ -214,10 +220,22 @@ function operator(proxies) {
 
   result.forEach(function renameProxy(proxy) {
     const originalName = stringify(proxy.name);
-    let workingName = normalizeAliases(originalName);
 
     applyBlockQuic(proxy);
 
+    if (isDirectName(originalName)) {
+      proxy.name = originalName;
+      proxyRanks.set(proxy, DIRECT_RANK);
+      return;
+    }
+
+    if (isInternalCodeName(originalName)) {
+      proxy.name = joinName([options.unresolved, originalName]);
+      proxyRanks.set(proxy, UNRESOLVED_RANK);
+      return;
+    }
+
+    let workingName = normalizeAliases(originalName);
     const tags = collectTags(originalName + " " + workingName, tagRules);
     const route = options.route === "off" ? "" : findRoute(workingName);
     const rate = options.rate === "off" ? "" : findRate(workingName);
@@ -252,7 +270,15 @@ function operator(proxies) {
     });
   }
 
-  return result;
+  return sortPinnedProxies(result);
+}
+
+function isDirectName(name) {
+  return /^direct$/i.test(name.trim());
+}
+
+function isInternalCodeName(name) {
+  return /^[A-Za-z]+(?:-[A-Za-z0-9]+)+-\d+$/.test(name.trim());
 }
 
 // 保持数组顺序：先按输入格式识别，再映射到输出格式。
@@ -527,8 +553,14 @@ function toSuperscriptRate(value) {
 function appendSerialNumbers(proxies) {
   const groupsByName = new Map();
   const groups = [];
+  const flattened = [];
 
   proxies.forEach(function addProxy(proxy) {
+    if (getProxyRank(proxy) !== NORMAL_RANK) {
+      flattened.push(proxy);
+      return;
+    }
+
     let group = groupsByName.get(proxy.name);
     if (!group) {
       group = { name: proxy.name, items: [] };
@@ -545,7 +577,6 @@ function appendSerialNumbers(proxies) {
     group.items.push(renamedProxy);
   });
 
-  const flattened = [];
   groups.forEach(function addGroup(group) {
     group.items.forEach(function addItem(item) {
       flattened.push(item);
@@ -560,6 +591,10 @@ function removeSingletonSerial(proxies) {
   const groups = new Map();
 
   proxies.forEach(function groupProxy(proxy) {
+    if (getProxyRank(proxy) !== NORMAL_RANK) {
+      return;
+    }
+
     const baseName = getSerialBaseName(proxy);
     if (!groups.has(baseName)) {
       groups.set(baseName, []);
@@ -608,6 +643,24 @@ function hasFirstSerial(proxy) {
   }
 
   return /(?:^|[^0-9])01$/.test(proxy.name);
+}
+
+function sortPinnedProxies(proxies) {
+  return proxies
+    .map(function withIndex(proxy, index) {
+      return { proxy: proxy, index: index };
+    })
+    .sort(function sortByRank(a, b) {
+      const rankDiff = getProxyRank(a.proxy) - getProxyRank(b.proxy);
+      return rankDiff || a.index - b.index;
+    })
+    .map(function unwrap(item) {
+      return item.proxy;
+    });
+}
+
+function getProxyRank(proxy) {
+  return proxyRanks.has(proxy) ? proxyRanks.get(proxy) : NORMAL_RANK;
 }
 
 function sortSpecialGroups(proxies) {

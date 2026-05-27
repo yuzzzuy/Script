@@ -10,6 +10,8 @@
 - 支持两字中文地区名视觉对齐，例如 `香　港`、`日　本`、`美　国`。
 - 支持倍率显示为上标、普通文本或括号样式。
 - 支持提取线路属性，例如 `IPLC`、`IEPL`、`家宽`、`Game`、`GPT`。
+- 支持保留内部编号节点并放到末尾，例如 `Fast-B1-1`、`JP-Dedicated-F3-1`。
+- 支持将 `DIRECT` / `direct` 直连节点固定放到最前。
 - 台湾地区国旗统一显示为中国国旗。
 
 ## Usage
@@ -155,6 +157,29 @@ VIP 🇭🇰 香　港（HK） 01 IPLC ˣ² 原生 GPT
 
 ```text
 #format={prefix}%20{region}%20{route}%20{rate}%20{tags}%20{serial}
+```
+
+### `unresolved`
+
+控制未解析内部编号节点的前置标识，默认值为 `特殊`。
+
+```text
+#unresolved=未识别
+```
+
+内部编号节点不会参与地区、线路、倍率解析，会保留原始名称并放到正常节点后面：
+
+```text
+特殊 Fast-B1-1
+特殊 JP-Dedicated-F3-1
+特殊 SG-X5-1
+```
+
+`DIRECT` / `direct` 直连节点会保留原名并固定放到列表最前：
+
+```text
+DIRECT
+direct
 ```
 
 ### Other Options
