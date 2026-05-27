@@ -17,6 +17,36 @@ serialBy=prefix,region
 
 字段为空时会自动跳过。例如没有 `type` 或标签信息时，`[{type}][{rate}][{route}][{ability}]` 会整块跳过，不会留下空中括号或多余空格。
 
+## 配置区
+
+脚本顶部有一个 `CONFIG` 对象，常用字典和默认行为都集中在这里。日常维护优先改 `CONFIG`，尽量不要改下面的处理函数。
+
+常用配置：
+
+| 配置 | 作用 |
+| --- | --- |
+| `CONFIG.defaults.format` | 默认命名格式 |
+| `CONFIG.defaults.sort` | 默认排序字段 |
+| `CONFIG.defaults.serialBy` | 默认编号分组 |
+| `CONFIG.magneticFields` | 连续相邻时会磁吸成中括号标签的字段 |
+| `CONFIG.abilityRules` | 能力标签字典，例如 `GPT`、`AI` |
+| `CONFIG.tagRules` | 内置标签字典，例如 `奈飞`、`固定IP` |
+| `CONFIG.routeRules` | 线路描述字典，例如 `IPLC`、`家宽`、`游戏` |
+| `CONFIG.countryAliases` | 国家/地区别名识别 |
+| `CONFIG.infoKeywords` | 套餐、流量、公告等信息节点过滤关键词 |
+
+当前内置关键词覆盖了常见 AI 服务、流媒体/应用解锁、线路承载网络、网络质量描述、常见城市别名和订阅信息节点。后续新增普通关键词时，优先追加到对应的 `CONFIG.*Rules` 或 `CONFIG.infoKeywords`。
+
+普通关键词可以用 `match`，复杂边界再用 `regex`：
+
+```js
+// 普通关键词，维护简单
+{ match: ["Disney", "Disney+"], value: "迪士尼" }
+
+// 复杂规则，避免误匹配
+{ regex: /\bdedicated\b(?![\s-]*ipv6)/i, value: "独立服务器" }
+```
+
 ## 标准字段
 
 | Field | 含义 | 来源 | 示例 |
@@ -121,7 +151,8 @@ prefix,type,region,extra,route,rate,ability,tags,name
 | `en` | 英文缩写，例如 `Fam`、`Game`、`Zx` |
 | `off` | 不显示线路描述 |
 
-`IPLC`、`IEPL`、`LB`、`CF`、`UDP`、`UDPN` 这类常见缩写在中文模式下也保留缩写。
+`IPLC`、`IEPL`、`BGP`、`CN2`、`CMI`、`CUG`、`9929`、`LB`、`CF`、`UDP`、`UDPN` 这类常见缩写在中文模式下也保留缩写。
+线路字典也会识别 `中转`、`隧道`、`直连`、`Anycast`、`专用` 等常见描述。
 如果节点名同时包含多个线路描述，会按命中顺序全部输出并自动去重，例如 `IPLC游戏专线` 会输出 `IPLC 游戏 专线`。
 
 ### `rate`
@@ -152,6 +183,12 @@ prefix,type,region,extra,route,rate,ability,tags,name
 | `Netflix` / `Netflix supported` | `奈飞` |
 | `Dedicated` / `Baremetal server` | `独立服务器` |
 | `D1` / `D2` / `No rate limiting` | `不限速` |
+| `Disney` / `YouTube` / `TikTok` / `Spotify` | 对应服务标签 |
+| `Telegram` / `Steam` / `HBO` / `Prime Video` | 对应服务标签 |
+| `DAZN` / `Bahamut` / `Abema` / `动画疯` | 对应服务标签 |
+| `Streaming` / `Unlock` / `流媒体` | `流媒` |
+| `Premium` / `VIP` | `高级` |
+| `Low latency` / `稳定` | `低延迟` / `稳定` |
 
 参数 `tags` 用来追加你自己的关键词规则。
 
@@ -236,6 +273,8 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 
 控制无法识别国家/地区节点的前置标识，默认 `特殊`。
 
+特殊节点会继续尝试使用已有字典翻译倍率、线路、能力和标签；能翻译出内容时，保留原名并在后面追加磁吸样式标签。完全翻译不出内容时保留原名，但仍然排在正常节点后面。
+
 ```text
 #special=未识别
 ```
@@ -243,7 +282,8 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 示例：
 
 ```text
-特殊 Fast-B1-1
+特殊 Fast-B1-1 [速度优先]
+Unknown-Node
 ```
 
 ## 大用例
@@ -281,7 +321,7 @@ VIP 🇰🇷 韩国（KR） 03 [trojan][2×][2倍计费]
 VIP 🇰🇷 韩国（KR） 04 [trojan][6×][家宽][原生][GPT][流媒]
 VIP 🇨🇳 台湾（TW） 01 [ss][3×][游戏][GPT]
 VIP 🇺🇸 美国（US） 01 [vless][固定IP][速度优先][可用性优先]
-特殊 Fast-B1-1
+特殊 Fast-B1-1 [速度优先]
 ```
 
 说明：
@@ -295,7 +335,7 @@ VIP 🇺🇸 美国（US） 01 [vless][固定IP][速度优先][可用性优先]
 - `type` 保留节点对象原值；没有 `type` 时对应标签会自动跳过。
 - `原生`、`GPT`、`AI` 自动进入 `ability`。
 - `Fixed`、`Netflix`、`D1` 等内置字典会进入 `tags`；`流媒体`、`晚高峰` 根据参数 `tags` 映射为 `流媒`、`晚峰`。
-- `Fast-B1-1` 无法识别国家/地区，所以加 `特殊` 并排最后。
+- `Fast-B1-1` 无法识别国家/地区，但 `Fast` 能命中内置 tags 字典，所以输出 `特殊 Fast-B1-1 [速度优先]` 并排最后。
 
 ## Development
 

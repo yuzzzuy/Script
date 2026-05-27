@@ -5,7 +5,7 @@
  * - 参数以 # 开头，多个参数用 & 连接，例如：#region=all&rate=sup&route=zh
  * - 命名先解析为 prefix/type/region/serial/route/rate/ability/tags 字段，再由 format 组装
  * - format 中字段为空会自动跳过，不留下多余分隔符
- * - sort 控制最终排序字段，默认按 prefix + region + type 分组，再按额外信息复杂度排序
+ * - sort 控制最终排序字段，默认按 prefix + region 分组，再按倍率和额外信息排序
  * - serialBy 控制编号分组字段，默认按 prefix + region 分组
  * - route 控制线路描述语言或开关，默认中文，可切换为英文缩写或关闭
  * - match 控制地区识别输入格式，默认自动识别；region/rate/route/serial/tags 控制各字段显示
@@ -19,29 +19,269 @@
 
 const inArg =
   typeof $arguments === "object" && $arguments !== null ? $arguments : {};
+const FIELD_SEPARATOR = " ";
+const CONFIG = {
+  defaults: {
+    format:
+      "{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}]",
+    route: "zh",
+    rate: "plain",
+    special: "特殊",
+    sort: [
+      "prefix",
+      "region",
+      "extra",
+      "rate",
+      "type",
+      "detail",
+      "route",
+      "ability",
+      "tags",
+      "name",
+    ],
+    serialBy: ["prefix", "region"],
+  },
+  magneticFields: ["type", "rate", "route", "ability", "tags"],
+  matchInputAliases: {
+    cn: "cn",
+    zh: "cn",
+    abbr: "us",
+    code: "us",
+    us: "us",
+    en: "us",
+    full: "quan",
+    quan: "quan",
+    gq: "gq",
+    flag: "gq",
+  },
+  regionStyleAliases: {
+    cn: "name",
+    zh: "name",
+    abbr: "code",
+    us: "code",
+    en: "code",
+    quan: "full",
+    gq: "flag",
+    cnabbr: "name-code",
+    "cn-abbr": "name-code",
+    namecode: "name-code",
+    "name-code": "name-code",
+    standard: "flag-name",
+    "flag-name": "flag-name",
+  },
+  regionStyles: [
+    "all",
+    "flag",
+    "name",
+    "code",
+    "full",
+    "name-code",
+    "flag-name",
+  ],
+  abilityRules: [
+    { regex: /原生|native/i, value: "原生" },
+    { regex: /\bgpt\b|chatgpt|openai/i, value: "GPT" },
+    { regex: /\bai\b|人工智能/i, value: "AI" },
+    { regex: /claude|anthropic/i, value: "Claude" },
+    { regex: /gemini|bard/i, value: "Gemini" },
+    { regex: /copilot/i, value: "Copilot" },
+    { regex: /perplexity/i, value: "Perplexity" },
+  ],
+  tagRules: [
+    {
+      regex: /no[\s-]*geo[\s-]*tag|cross[\s-]*region[\s-]*cluster/i,
+      value: "跨区集群",
+    },
+    { regex: /\bfixed\b|fixed[\s-]*ip/i, value: "固定IP" },
+    { regex: /\bx2\b|2x[\s-]*traffic[\s-]*billing/i, value: "2倍计费" },
+    { regex: /\bipv6\b|dedicated[\s-]*ipv6/i, value: "独享IPv6" },
+    { regex: /\bfast\b|speed[\s-]*priority/i, value: "速度优先" },
+    {
+      regex: /\bbalancer\b|availability[\s-]*priority/i,
+      value: "可用性优先",
+    },
+    { regex: /\bnetflix\b|netflix[\s-]*supported/i, value: "奈飞" },
+    {
+      regex: /\bdedicated\b(?![\s-]*ipv6)|baremetal[\s-]*server/i,
+      value: "独立服务器",
+    },
+    { regex: /\bd[12]\b|no[\s-]*rate[\s-]*limiting/i, value: "不限速" },
+    { regex: /disney\+?|disney[\s-]*plus/i, value: "迪士尼" },
+    { regex: /youtube|\byt\b/i, value: "YouTube" },
+    { regex: /tiktok/i, value: "TikTok" },
+    { regex: /spotify/i, value: "Spotify" },
+    { regex: /telegram/i, value: "Telegram" },
+    { regex: /steam/i, value: "Steam" },
+    { regex: /\bhbo\b|hbo[\s-]*max/i, value: "HBO" },
+    { regex: /prime[\s-]*video|amazon[\s-]*prime/i, value: "Prime" },
+    { regex: /dazn/i, value: "DAZN" },
+    { regex: /bahamut|baha|巴哈姆特|巴哈/i, value: "巴哈" },
+    { regex: /abema/i, value: "Abema" },
+    { regex: /动画疯/i, value: "动画疯" },
+    { regex: /streaming|media[\s-]*unlock|unlock|解锁|流媒体/i, value: "流媒" },
+    { regex: /premium|vip/i, value: "高级" },
+    { regex: /low[\s-]*latency|低延迟/i, value: "低延迟" },
+    { regex: /stable|stability|稳定/i, value: "稳定" },
+  ],
+  routeRules: [
+    { regex: /IPLC/i, zh: "IPLC", en: "IPLC" },
+    { regex: /IEPL/i, zh: "IEPL", en: "IEPL" },
+    { regex: /核心/, zh: "核心", en: "Kern" },
+    { regex: /边缘/, zh: "边缘", en: "Edge" },
+    { regex: /高级/, zh: "高级", en: "Pro" },
+    { regex: /标准/, zh: "标准", en: "Std" },
+    { regex: /实验/, zh: "实验", en: "Exp" },
+    { regex: /商宽/, zh: "商宽", en: "Biz" },
+    { regex: /家宽/, zh: "家宽", en: "Fam" },
+    { regex: /游戏|game/i, zh: "游戏", en: "Game" },
+    { regex: /购物/, zh: "购物", en: "Buy" },
+    { regex: /专线/, zh: "专线", en: "Zx" },
+    { regex: /中转|relay|transfer/i, zh: "中转", en: "Relay" },
+    { regex: /隧道|tunnel/i, zh: "隧道", en: "Tunnel" },
+    { regex: /直连|direct/i, zh: "直连", en: "Direct" },
+    { regex: /BGP/i, zh: "BGP", en: "BGP" },
+    { regex: /CN2/i, zh: "CN2", en: "CN2" },
+    { regex: /CMI/i, zh: "CMI", en: "CMI" },
+    { regex: /CUG/i, zh: "CUG", en: "CUG" },
+    { regex: /AS9929|9929/, zh: "9929", en: "9929" },
+    { regex: /anycast/i, zh: "Anycast", en: "Anycast" },
+    { regex: /专用|\bdedicated\b(?![\s-]*ipv6)/i, zh: "专用", en: "Dedicated" },
+    { regex: /LB/, zh: "LB", en: "LB" },
+    { regex: /cloudflare/i, zh: "CF", en: "CF" },
+    { regex: /\budp\b/i, zh: "UDP", en: "UDP" },
+    { regex: /udpn\b/i, zh: "UDPN", en: "UDPN" },
+  ],
+  countryAliases: [
+    { name: "GB", regex: /UK/g },
+    { name: "B-G-P", regex: /BGP/g },
+    { name: "Russia Moscow", regex: /Moscow/g },
+    { name: "Korea Chuncheon", regex: /Chuncheon|Seoul/g },
+    { name: "Hong Kong", regex: /Hongkong|HONG KONG/gi },
+    { name: "United Kingdom London", regex: /London|Great Britain/g },
+    { name: "Dubai United Arab Emirates", regex: /United Arab Emirates/g },
+    {
+      name: "Taiwan TW 台湾 🇹🇼",
+      regex: /(台|Tai\s?wan|TW).*?🇨🇳|🇨🇳.*?(台|Tai\s?wan|TW)/g,
+    },
+    {
+      name: "United States",
+      regex: /USA|Los Angeles|San Jose|Silicon Valley|Michigan/g,
+    },
+    { name: "澳大利亚", regex: /澳洲|墨尔本|悉尼|土澳|(深|沪|呼|京|广|杭)澳/g },
+    { name: "德国", regex: /(深|沪|呼|京|广|杭)德(?!.*(I|线))|法兰克福|滬德/g },
+    { name: "香港", regex: /(深|沪|呼|京|广|杭)港(?!.*(I|线))/g },
+    { name: "日本", regex: /(深|沪|呼|京|广|杭|中|辽)日(?!.*(I|线))|东京|大坂/g },
+    { name: "新加坡", regex: /狮城|(深|沪|呼|京|广|杭)新/g },
+    {
+      name: "美国",
+      regex: /(深|沪|呼|京|广|杭)美|波特兰|芝加哥|哥伦布|纽约|硅谷|俄勒冈|西雅图|芝加哥/g,
+    },
+    { name: "波斯尼亚和黑塞哥维那", regex: /波黑共和国/g },
+    { name: "印尼", regex: /印度尼西亚|雅加达/g },
+    { name: "印度", regex: /孟买/g },
+    { name: "阿联酋", regex: /迪拜|阿拉伯联合酋长国/g },
+    { name: "孟加拉国", regex: /孟加拉/g },
+    { name: "捷克", regex: /捷克共和国/g },
+    { name: "台湾", regex: /新台|新北|台(?!.*线)/g },
+    { name: "Taiwan", regex: /Taipei/g },
+    { name: "韩国", regex: /春川|韩|首尔/g },
+    { name: "Japan", regex: /Tokyo|Osaka/g },
+    { name: "英国", regex: /伦敦/g },
+    { name: "India", regex: /Mumbai/g },
+    { name: "Germany", regex: /Frankfurt/g },
+    { name: "Switzerland", regex: /Zurich/g },
+    { name: "俄罗斯", regex: /莫斯科/g },
+    { name: "土耳其", regex: /伊斯坦布尔/g },
+    { name: "泰国", regex: /泰國|曼谷/g },
+    { name: "法国", regex: /巴黎/g },
+    { name: "United States", regex: /New York|Seattle|Dallas|Miami|Ashburn|Phoenix|Denver/g },
+    { name: "Canada", regex: /Toronto|Vancouver|Montreal/g },
+    { name: "Singapore", regex: /Singapore|狮城/g },
+    { name: "Hong Kong", regex: /HKBN|HKT|HGC|PCCW/g },
+    { name: "Japan", regex: /Narita|Saitama|Yokohama|名古屋|大阪/g },
+    { name: "Korea", regex: /Busan|Incheon|首尔|釜山/g },
+    { name: "United Kingdom", regex: /Manchester|英国/g },
+    { name: "Netherlands", regex: /Amsterdam|荷兰/g },
+    { name: "Malaysia", regex: /Kuala[\s-]*Lumpur|吉隆坡/g },
+    { name: "Philippines", regex: /Manila|马尼拉/g },
+    { name: "Vietnam", regex: /Ho[\s-]*Chi[\s-]*Minh|Hanoi|胡志明|河内/g },
+    { name: "G", regex: /\d\s?GB/gi },
+    { name: "Esnc", regex: /esnc/gi },
+  ],
+  infoKeywords: [
+    "套餐",
+    "到期",
+    "有效",
+    "剩余",
+    "版本",
+    "已用",
+    "过期",
+    "失联",
+    "测试",
+    "官方",
+    "网址",
+    "备用",
+    "群",
+    "TEST",
+    "客服",
+    "网站",
+    "获取",
+    "订阅",
+    "流量",
+    "机场",
+    "下次",
+    "重置",
+    "建议",
+    "提示",
+    "公告",
+    "通知",
+    "官址",
+    "联系",
+    "邮箱",
+    "工单",
+    "学术",
+    "官网",
+    "官方地址",
+    "教程",
+    "说明",
+    "帮助",
+    "频道",
+    "TG群",
+    "群组",
+    "邀请",
+    "返利",
+    "余额",
+    "账户",
+    "账号",
+    "更新",
+    "刷新",
+    "维护",
+    "节点状态",
+    "过期时间",
+    "重置时间",
+    "Traffic",
+    "Reset",
+    "Notice",
+    "Website",
+    "Official",
+    "Support",
+    "Channel",
+    "USE",
+    "USED",
+    "TOTAL",
+    "EXPIRE",
+    "EMAIL",
+    "距离下次重置",
+    "剩余天数",
+    "剩余流量",
+  ],
+};
+
 const parsedFormat = parseFormat(inArg.format);
 const parsedRoute = parseRouteOption(inArg.route);
-const FIELD_SEPARATOR = " ";
-const DEFAULT_SORT_FIELDS = [
-  "prefix",
-  "region",
-  "extra",
-  "rate",
-  "type",
-  "detail",
-  "route",
-  "ability",
-  "tags",
-  "name",
-];
-const DEFAULT_SERIAL_BY_FIELDS = ["prefix", "region"];
-const MAGNETIC_FORMAT_FIELDS = {
-  type: true,
-  rate: true,
-  route: true,
-  ability: true,
-  tags: true,
-};
+const DEFAULT_SORT_FIELDS = CONFIG.defaults.sort;
+const DEFAULT_SERIAL_BY_FIELDS = CONFIG.defaults.serialBy;
+const MAGNETIC_FORMAT_FIELDS = listToLookup(CONFIG.magneticFields);
 
 const options = {
   prefix: inArg.prefix === undefined ? "" : safeDecode(inArg.prefix),
@@ -56,58 +296,21 @@ const options = {
   special: parseSpecialLabel(inArg.special, inArg.unresolved),
 };
 
-const nameMap = {
-  cn: "cn",
-  zh: "cn",
-  abbr: "us",
-  code: "us",
-  us: "us",
-  en: "us",
-  full: "quan",
-  quan: "quan",
-  gq: "gq",
-  flag: "gq",
-};
-
 function parseRegionStyle(value) {
   const style = value === undefined ? "all" : String(value).toLowerCase();
-  const aliases = {
-    cn: "name",
-    zh: "name",
-    abbr: "code",
-    us: "code",
-    en: "code",
-    quan: "full",
-    gq: "flag",
-    cnabbr: "name-code",
-    "cn-abbr": "name-code",
-    namecode: "name-code",
-    "name-code": "name-code",
-    standard: "flag-name",
-    "flag-name": "flag-name",
-  };
+  const aliases = CONFIG.regionStyleAliases;
   const normalized = aliases[style] || style;
-  const allowed = [
-    "all",
-    "flag",
-    "name",
-    "code",
-    "full",
-    "name-code",
-    "flag-name",
-  ];
+  const allowed = CONFIG.regionStyles;
   return allowed.indexOf(normalized) === -1 ? "all" : normalized;
 }
 
 function parseFormat(value) {
-  const defaultFormat =
-    "{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}]";
   if (value === undefined) {
-    return defaultFormat;
+    return CONFIG.defaults.format;
   }
 
   const format = safeDecode(value).trim();
-  return format === "" ? defaultFormat : format;
+  return format === "" ? CONFIG.defaults.format : format;
 }
 
 function parseFormatTokens(format) {
@@ -223,7 +426,10 @@ function parseSerialStyle(value) {
 }
 
 function parseRouteOption(value) {
-  const style = value === undefined ? "zh" : String(value).trim().toLowerCase();
+  const style =
+    value === undefined
+      ? CONFIG.defaults.route
+      : String(value).trim().toLowerCase();
 
   if (style === "off" || style === "none" || style === "false") {
     return { enabled: false, lang: "zh" };
@@ -239,7 +445,10 @@ function parseRouteOption(value) {
 }
 
 function parseRateStyle(value) {
-  const style = value === undefined ? "plain" : String(value).trim().toLowerCase();
+  const style =
+    value === undefined
+      ? CONFIG.defaults.rate
+      : String(value).trim().toLowerCase();
   if (style === "off" || style === "none" || style === "false") {
     return "off";
   }
@@ -259,11 +468,11 @@ function parseSpecialLabel(value, legacyValue) {
   if (legacyValue !== undefined) {
     return safeDecode(legacyValue);
   }
-  return "特殊";
+  return CONFIG.defaults.special;
 }
 
 const inputName =
-  nameMap[
+  CONFIG.matchInputAliases[
     inArg.match === undefined
       ? inArg.input === undefined
         ? inArg.in
@@ -301,79 +510,11 @@ const ZH = ['香港','澳门','台湾','日本','韩国','新加坡','美国','�
 // prettier-ignore
 const QC = ['Hong Kong','Macao','Taiwan','Japan','Korea','Singapore','United States','United Kingdom','France','Germany','Australia','Dubai','Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','British Virgin Islands','Brunei','Bulgaria','Burkina-faso','Burundi','Cambodia','Cameroon','Canada','CapeVerde','CaymanIslands','Central African Republic','Chad','Chile','Colombia','Comoros','Congo-Brazzaville','Congo-Kinshasa','CostaRica','Croatia','Cyprus','Czech Republic','Denmark','Djibouti','Dominican Republic','Ecuador','Egypt','EISalvador','Equatorial Guinea','Eritrea','Estonia','Ethiopia','Fiji','Finland','Gabon','Gambia','Georgia','Ghana','Greece','Greenland','Guatemala','Guinea','Guyana','Haiti','Honduras','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Isle of Man','Israel','Italy','Ivory Coast','Jamaica','Jordan','Kazakstan','Kenya','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Lithuania','Luxembourg','Macedonia','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Mauritania','Mauritius','Mexico','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar(Burma)','Namibia','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','NorthKorea','Norway','Oman','Pakistan','Panama','Paraguay','Peru','Philippines','Portugal','PuertoRico','Qatar','Romania','Russia','Rwanda','SanMarino','SaudiArabia','Senegal','Serbia','SierraLeone','Slovakia','Slovenia','Somalia','SouthAfrica','Spain','SriLanka','Sudan','Suriname','Swaziland','Sweden','Switzerland','Syria','Tajikstan','Tanzania','Thailand','Togo','Tonga','TrinidadandTobago','Tunisia','Turkey','Turkmenistan','U.S.Virgin Islands','Uganda','Ukraine','Uruguay','Uzbekistan','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe','Andorra','Reunion','Poland','Guam','Vatican','Liechtensteins','Curacao','Seychelles','Antarctica','Gibraltar','Cuba','Faroe Islands','Ahvenanmaa','Bermuda','Timor-Leste'];
 
-const abilityRules = [
-  { regex: /原生|native/i, value: "原生" },
-  { regex: /\bgpt\b|chatgpt|openai/i, value: "GPT" },
-  { regex: /\bai\b|人工智能/i, value: "AI" },
-];
-const builtinTagRules = [
-  {
-    regex: /no[\s-]*geo[\s-]*tag|cross[\s-]*region[\s-]*cluster/i,
-    value: "跨区集群",
-  },
-  { regex: /\bfixed\b|fixed[\s-]*ip/i, value: "固定IP" },
-  { regex: /\bx2\b|2x[\s-]*traffic[\s-]*billing/i, value: "2倍计费" },
-  { regex: /\bipv6\b|dedicated[\s-]*ipv6/i, value: "独享IPv6" },
-  { regex: /\bfast\b|speed[\s-]*priority/i, value: "速度优先" },
-  {
-    regex: /\bbalancer\b|availability[\s-]*priority/i,
-    value: "可用性优先",
-  },
-  { regex: /\bnetflix\b|netflix[\s-]*supported/i, value: "奈飞" },
-  {
-    regex: /\bdedicated\b(?![\s-]*ipv6)|baremetal[\s-]*server/i,
-    value: "独立服务器",
-  },
-  { regex: /\bd[12]\b|no[\s-]*rate[\s-]*limiting/i, value: "不限速" },
-];
-const infoNodeRegex =
-  /(套餐|到期|有效|剩余|版本|已用|过期|失联|测试|官方|网址|备用|群|TEST|客服|网站|获取|订阅|流量|机场|下次|重置|建议|提示|公告|通知|官址|联系|邮箱|工单|学术|USE|USED|TOTAL|EXPIRE|EMAIL|距离下次重置|剩余天数|剩余流量)/i;
+const abilityRules = CONFIG.abilityRules.map(normalizeRule);
+const builtinTagRules = CONFIG.tagRules.map(normalizeRule);
+const infoNodeRegex = buildKeywordRegex(CONFIG.infoKeywords);
 const rateRegex =
   /((倍率|X|x|×)\D?((\d{1,3}\.)?\d+)\D?)|((\d{1,3}\.)?\d+)(倍|X|x|×)/g;
-// prettier-ignore
-const regexArray = [/ˣ²/, /ˣ³/, /ˣ⁴/, /ˣ⁵/, /ˣ⁶/, /ˣ⁷/, /ˣ⁸/, /ˣ⁹/, /ˣ¹⁰/, /ˣ²⁰/, /ˣ³⁰/, /ˣ⁴⁰/, /ˣ⁵⁰/, /IPLC/i, /IEPL/i, /核心/, /边缘/, /高级/, /标准/, /实验/, /商宽/, /家宽/, /游戏|game/i, /购物/, /专线/, /LB/, /cloudflare/i, /\budp\b/i, /udpn\b/];
-// prettier-ignore
-const valueArray = ["2×","3×","4×","5×","6×","7×","8×","9×","10×","20×","30×","40×","50×","IPLC","IEPL","Kern","Edge","Pro","Std","Exp","Biz","Fam","Game","Buy","Zx","LB","CF","UDP","UDPN"];
-// prettier-ignore
-const routeValueArrayZh = ["IPLC","IEPL","核心","边缘","高级","标准","实验","商宽","家宽","游戏","购物","专线","LB","CF","UDP","UDPN"];
-const routeRegexStartIndex = 13;
-const rurekey = {
-  GB: /UK/g,
-  "B-G-P": /BGP/g,
-  "Russia Moscow": /Moscow/g,
-  "Korea Chuncheon": /Chuncheon|Seoul/g,
-  "Hong Kong": /Hongkong|HONG KONG/gi,
-  "United Kingdom London": /London|Great Britain/g,
-  "Dubai United Arab Emirates": /United Arab Emirates/g,
-  "Taiwan TW 台湾 🇹🇼": /(台|Tai\s?wan|TW).*?🇨🇳|🇨🇳.*?(台|Tai\s?wan|TW)/g,
-  "United States": /USA|Los Angeles|San Jose|Silicon Valley|Michigan/g,
-  澳大利亚: /澳洲|墨尔本|悉尼|土澳|(深|沪|呼|京|广|杭)澳/g,
-  德国: /(深|沪|呼|京|广|杭)德(?!.*(I|线))|法兰克福|滬德/g,
-  香港: /(深|沪|呼|京|广|杭)港(?!.*(I|线))/g,
-  日本: /(深|沪|呼|京|广|杭|中|辽)日(?!.*(I|线))|东京|大坂/g,
-  新加坡: /狮城|(深|沪|呼|京|广|杭)新/g,
-  美国: /(深|沪|呼|京|广|杭)美|波特兰|芝加哥|哥伦布|纽约|硅谷|俄勒冈|西雅图|芝加哥/g,
-  波斯尼亚和黑塞哥维那: /波黑共和国/g,
-  印尼: /印度尼西亚|雅加达/g,
-  印度: /孟买/g,
-  阿联酋: /迪拜|阿拉伯联合酋长国/g,
-  孟加拉国: /孟加拉/g,
-  捷克: /捷克共和国/g,
-  台湾: /新台|新北|台(?!.*线)/g,
-  Taiwan: /Taipei/g,
-  韩国: /春川|韩|首尔/g,
-  Japan: /Tokyo|Osaka/g,
-  英国: /伦敦/g,
-  India: /Mumbai/g,
-  Germany: /Frankfurt/g,
-  Switzerland: /Zurich/g,
-  俄罗斯: /莫斯科/g,
-  土耳其: /伊斯坦布尔/g,
-  泰国: /泰國|曼谷/g,
-  法国: /巴黎/g,
-  G: /\d\s?GB/gi,
-  Esnc: /esnc/gi,
-};
 
 // 根据参数预构建匹配表，后续每个节点直接复用，避免重复拼装国家/地区映射。
 const countryEntries = buildCountryEntries();
@@ -435,7 +576,7 @@ function operator(proxies) {
       return;
     }
 
-    proxy.name = joinName([options.special, originalName]);
+    proxy.name = buildSpecialName(originalName, rate, route, ability, tags);
     proxyRanks.set(proxy, UNRESOLVED_RANK);
   });
 
@@ -463,12 +604,16 @@ function renderFinalNames(proxies) {
       return getProxyRank(proxy) === NORMAL_RANK && proxyFields.has(proxy);
     })
     .map(function toRecord(proxy) {
-      return { proxy: proxy, fields: proxyFields.get(proxy) };
+      const fields = proxyFields.get(proxy);
+      return {
+        proxy: proxy,
+        parts: buildFormatParts(fields),
+      };
     });
   const columnWidths = buildFormatColumnWidths(records);
 
   records.forEach(function renderRecord(record) {
-    record.proxy.name = renderFormat(record.fields, columnWidths);
+    record.proxy.name = renderFormatParts(record.parts, columnWidths);
   });
 }
 
@@ -482,6 +627,28 @@ function isInfoNode(name) {
 
 function isProxyObject(proxy) {
   return proxy !== null && typeof proxy === "object";
+}
+
+function buildSpecialName(originalName, rate, route, ability, tags) {
+  const labels = [];
+  collectFieldValues(labels, rate);
+  collectFieldValues(labels, route);
+  collectFieldValues(labels, ability);
+  collectFieldValues(labels, tags);
+
+  if (labels.length === 0) {
+    return originalName;
+  }
+
+  return joinName([
+    options.special,
+    originalName,
+    labels
+      .map(function wrap(value) {
+        return "[" + value + "]";
+      })
+      .join(""),
+  ]);
 }
 
 // 保持数组顺序：先按输入格式识别，再映射到输出格式。
@@ -502,24 +669,22 @@ function buildCountryEntries() {
 }
 
 function buildAliasEntries() {
-  return Object.keys(rurekey).map(function mapAlias(aliasName) {
+  return CONFIG.countryAliases.map(function mapAlias(item) {
     return {
-      name: aliasName,
-      regex: rurekey[aliasName],
+      name: item.name,
+      regex: compileRuleRegex(item),
     };
   });
 }
 
 function buildRouteEntries() {
-  const entries = [];
-  for (let index = routeRegexStartIndex; index < regexArray.length; index++) {
-    entries.push({
-      regex: regexArray[index],
-      en: valueArray[index],
-      zh: routeValueArrayZh[index - routeRegexStartIndex] || valueArray[index],
-    });
-  }
-  return entries;
+  return CONFIG.routeRules.map(function mapRoute(item) {
+    return {
+      regex: compileRuleRegex(item),
+      zh: item.zh,
+      en: item.en,
+    };
+  });
 }
 
 // 把常见别名和城市名归一化，提升后续国家/地区识别命中率。
@@ -537,22 +702,23 @@ function getProxyType(proxy) {
   return stringify(proxy.type || proxy.protocol || proxy["proxy-type"]).trim();
 }
 
-// tags 使用 source>display 格式，未指定 display 时保留 source 自身。
+// ability 只收集内置能力标签，例如原生、GPT、AI。
 function collectAbility(name) {
   const retained = [];
   abilityRules.forEach(function collectBuiltin(item) {
-    if (regexTest(item.regex, name) && retained.indexOf(item.value) === -1) {
-      retained.push(item.value);
+    if (ruleMatches(item, name)) {
+      pushUnique(retained, item.value);
     }
   });
   return retained;
 }
 
+// tags 合并内置标签和自定义 source>display 规则。
 function collectTags(name, tagRules) {
   const retained = [];
   builtinTagRules.forEach(function collectBuiltin(item) {
-    if (regexTest(item.regex, name) && retained.indexOf(item.value) === -1) {
-      retained.push(item.value);
+    if (ruleMatches(item, name)) {
+      pushUnique(retained, item.value);
     }
   });
 
@@ -561,9 +727,7 @@ function collectTags(name, tagRules) {
       return;
     }
     const value = item.replacement || item.source;
-    if (retained.indexOf(value) === -1) {
-      retained.push(value);
-    }
+    pushUnique(retained, value);
   });
   return retained;
 }
@@ -593,9 +757,7 @@ function findRoute(name) {
   for (let index = 0; index < routeEntries.length; index++) {
     if (regexTest(routeEntries[index].regex, name)) {
       const value = getRouteValue(routeEntries[index]);
-      if (routes.indexOf(value) === -1) {
-        routes.push(value);
-      }
+      pushUnique(routes, value);
     }
   }
   return routes;
@@ -652,8 +814,7 @@ function buildFormatColumnWidths(records) {
   const widths = {};
 
   records.forEach(function collectWidths(record) {
-    const parts = buildFormatParts(record.fields);
-    parts.forEach(function collect(part) {
+    record.parts.forEach(function collect(part) {
       const width = getDisplayWidth(part.text);
       widths[part.column] = Math.max(widths[part.column] || 0, width);
     });
@@ -663,7 +824,10 @@ function buildFormatColumnWidths(records) {
 }
 
 function renderFormat(fields, columnWidths) {
-  const parts = buildFormatParts(fields);
+  return renderFormatParts(buildFormatParts(fields), columnWidths);
+}
+
+function renderFormatParts(parts, columnWidths) {
   const rendered = [];
 
   parts.forEach(function renderPart(part) {
@@ -778,6 +942,12 @@ function collectFieldValues(result, value) {
 
   if (!isEmptyField(value)) {
     result.push(String(value));
+  }
+}
+
+function pushUnique(list, value) {
+  if (value !== "" && list.indexOf(value) === -1) {
+    list.push(value);
   }
 }
 
@@ -993,18 +1163,22 @@ function hasFirstSerial(proxy) {
 function sortPinnedProxies(proxies) {
   return proxies
     .map(function withIndex(proxy, index) {
-      return { proxy: proxy, index: index };
+      const rank = getProxyRank(proxy);
+      return {
+        proxy: proxy,
+        index: index,
+        rank: rank,
+        sortKey: rank === NORMAL_RANK ? getProxySortKey(proxy) : "",
+      };
     })
     .sort(function sortByRank(a, b) {
-      const rankDiff = getProxyRank(a.proxy) - getProxyRank(b.proxy);
+      const rankDiff = a.rank - b.rank;
       if (rankDiff) {
         return rankDiff;
       }
 
-      if (getProxyRank(a.proxy) === NORMAL_RANK) {
-        const keyDiff = getProxySortKey(a.proxy).localeCompare(
-          getProxySortKey(b.proxy)
-        );
+      if (a.rank === NORMAL_RANK) {
+        const keyDiff = a.sortKey.localeCompare(b.sortKey);
         if (keyDiff) {
           return keyDiff;
         }
@@ -1125,6 +1299,55 @@ function resetRegex(regex) {
   if (regex.global || regex.sticky) {
     regex.lastIndex = 0;
   }
+}
+
+function listToLookup(list) {
+  const lookup = {};
+  list.forEach(function add(item) {
+    lookup[item] = true;
+  });
+  return lookup;
+}
+
+function buildKeywordRegex(keywords) {
+  return new RegExp(
+    keywords
+      .slice()
+      .sort(function sortByLength(a, b) {
+        return String(b).length - String(a).length;
+      })
+      .map(escapeRegex)
+      .join("|"),
+    "i"
+  );
+}
+
+function ruleMatches(rule, value) {
+  return regexTest(compileRuleRegex(rule), value);
+}
+
+function normalizeRule(rule) {
+  return {
+    regex: compileRuleRegex(rule),
+    value: rule.value,
+  };
+}
+
+function compileRuleRegex(rule) {
+  if (rule.regex) {
+    return rule.regex;
+  }
+
+  const match = Array.isArray(rule.match)
+    ? rule.match
+    : rule.match
+    ? [rule.match]
+    : [];
+  return match.length ? buildKeywordRegex(match) : /a^/;
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function stringify(value) {
