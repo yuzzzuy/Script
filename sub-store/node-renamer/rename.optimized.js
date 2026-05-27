@@ -229,12 +229,6 @@ function operator(proxies) {
       return;
     }
 
-    if (isInternalCodeName(originalName)) {
-      proxy.name = joinName([options.unresolved, originalName]);
-      proxyRanks.set(proxy, UNRESOLVED_RANK);
-      return;
-    }
-
     let workingName = normalizeAliases(originalName);
     const tags = collectTags(originalName + " " + workingName, tagRules);
     const route = options.route === "off" ? "" : findRoute(workingName);
@@ -243,6 +237,12 @@ function operator(proxies) {
 
     if (matchedCountry) {
       proxy.name = buildMatchedName(matchedCountry, tags, rate, route);
+      return;
+    }
+
+    if (isInternalCodeName(originalName)) {
+      proxy.name = joinName([options.unresolved, originalName]);
+      proxyRanks.set(proxy, UNRESOLVED_RANK);
       return;
     }
 
