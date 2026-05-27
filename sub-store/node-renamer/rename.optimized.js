@@ -25,9 +25,9 @@ const FIELD_SEPARATOR = " ";
 const DEFAULT_SORT_FIELDS = [
   "prefix",
   "region",
-  "type",
   "extra",
   "rate",
+  "type",
   "detail",
   "route",
   "ability",
@@ -36,6 +36,7 @@ const DEFAULT_SORT_FIELDS = [
 ];
 const DEFAULT_SERIAL_BY_FIELDS = ["prefix", "region"];
 const MAGNETIC_FORMAT_FIELDS = {
+  type: true,
   rate: true,
   route: true,
   ability: true,
@@ -100,7 +101,7 @@ function parseRegionStyle(value) {
 
 function parseFormat(value) {
   const defaultFormat =
-    "{prefix} {region} ({type}) {serial} [{rate}][{route}][{ability}][{tags}]";
+    "{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}]";
   if (value === undefined) {
     return defaultFormat;
   }
