@@ -2,11 +2,13 @@
  * Sub-Store 节点重命名脚本
  *
  * 参数说明：
- * - 参数以 # 开头，多个参数用 & 连接，例如：#region=all&rate=sup&route=auto
- * - 命名先解析为 prefix/region/serial/route/rate/tags 字段，再由 format 组装
+ * - 参数以 # 开头，多个参数用 & 连接，例如：#region=all&rate=sup&route=zh
+ * - 命名先解析为 prefix/type/region/serial/route/rate/ability/tags 字段，再由 format 组装
  * - format 中字段为空会自动跳过，不留下多余分隔符
- * - sort 控制最终排序字段，默认跟随 format 字段顺序，支持多个字段组合排序
- * - input 控制地区输入识别格式，默认为 auto；region/rate/route/serial/tags 控制各字段显示
+ * - sort 控制最终排序字段，默认按 prefix + region 排序，支持多个字段组合排序
+ * - serialBy 控制编号分组字段，默认按 prefix + region 分组
+ * - route 控制线路描述语言或开关，默认中文，可切换为英文缩写或关闭
+ * - match 控制地区识别输入格式，默认自动识别；region/rate/route/serial/tags 控制各字段显示
  *
  * 维护说明：
  * - 国家/地区数组的顺序就是映射关系，不能单独调整其中一个数组
@@ -18,26 +20,21 @@
 const inArg =
   typeof $arguments === "object" && $arguments !== null ? $arguments : {};
 const parsedFormat = parseFormat(inArg.format);
+const parsedRoute = parseRouteOption(inArg.route);
+const FIELD_SEPARATOR = " ";
 
 const options = {
-  nx: !!inArg.nx,
-  key: !!inArg.key,
-  blpx: !!inArg.blpx,
-  blnx: !!inArg.blnx,
-  debug: !!inArg.debug,
-  clear: !!inArg.clear,
-  nm: !!inArg.nm,
-  fgf: inArg.fgf === undefined ? " " : decodeURI(inArg.fgf),
-  prefix: inArg.prefix === undefined ? "" : decodeURI(inArg.prefix),
+  prefix: inArg.prefix === undefined ? "" : safeDecode(inArg.prefix),
   format: parsedFormat,
+  formatTokens: parseFormatTokens(parsedFormat),
   sort: parseSortFields(inArg.sort, parsedFormat),
+  serialBy: parseSerialByFields(inArg.serialBy, parsedFormat),
   serial: parseSerialStyle(inArg.serial),
-  route: parseRouteStyle(inArg.route),
+  routeEnabled: parsedRoute.enabled,
+  routeLanguage: parsedRoute.lang,
   rate: parseRateStyle(inArg.rate),
-  tags: inArg.tags === undefined ? "" : decodeURI(inArg.tags),
-  unresolved:
-    inArg.unresolved === undefined ? "特殊" : decodeURI(inArg.unresolved),
-  blockquic: inArg.blockquic === undefined ? "" : decodeURI(inArg.blockquic),
+  tags: inArg.tags === undefined ? "" : safeDecode(inArg.tags),
+  special: parseSpecialLabel(inArg.special, inArg.unresolved),
 };
 
 const nameMap = {
@@ -84,20 +81,55 @@ function parseRegionStyle(value) {
 }
 
 function parseFormat(value) {
-  const defaultFormat = "{prefix} {region} {serial} {route} {rate} {tags}";
+  const defaultFormat =
+    "{prefix} {region} {serial} {route} {rate} ({type}) {ability} {tags}";
   if (value === undefined) {
     return defaultFormat;
   }
 
-  const format = decodeURI(value).trim();
+  const format = safeDecode(value).trim();
   return format === "" ? defaultFormat : format;
+}
+
+function parseFormatTokens(format) {
+  return String(format)
+    .trim()
+    .split(/\s+/)
+    .filter(function keepToken(token) {
+      return token !== "";
+    })
+    .map(function parseToken(token) {
+      const exactMatch = token.match(/^\{([A-Za-z][A-Za-z0-9_]*)\}$/);
+      if (exactMatch) {
+        return {
+          exactField: exactMatch[1],
+          fieldNames: [exactMatch[1]],
+          template: token,
+        };
+      }
+
+      const fieldNames = [];
+      token.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function collectField(
+        match,
+        fieldName
+      ) {
+        fieldNames.push(fieldName);
+        return match;
+      });
+
+      return {
+        exactField: "",
+        fieldNames: fieldNames,
+        template: token,
+      };
+    });
 }
 
 function parseSortFields(value, format) {
   const source =
     value === undefined || String(value).trim() === ""
-      ? extractFormatFields(format)
-      : decodeURI(value).split(/[\s,+|>]+/);
+      ? ["prefix", "region"]
+      : safeDecode(value).split(/[\s,+|>]+/);
   const fields = [];
 
   source.forEach(function addSortField(item) {
@@ -112,35 +144,50 @@ function parseSortFields(value, format) {
   }
 
   return value === undefined
-    ? ["prefix", "region", "serial", "route", "rate", "tags"]
+    ? ["prefix", "region"]
     : parseSortFields(undefined, format);
 }
 
-function extractFormatFields(format) {
+function parseSerialByFields(value, format) {
+  const source =
+    value === undefined || String(value).trim() === ""
+      ? ["prefix", "region"]
+      : safeDecode(value).split(/[\s,+|>]+/);
   const fields = [];
-  String(format).replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function collect(
-    match,
-    fieldName
-  ) {
-    fields.push(fieldName);
-    return match;
+
+  source.forEach(function addSerialField(item) {
+    const field = normalizeSortField(item);
+    if (field && field !== "serial" && fields.indexOf(field) === -1) {
+      fields.push(field);
+    }
   });
-  return fields;
+
+  if (fields.length) {
+    return fields;
+  }
+
+  return value === undefined
+    ? ["prefix", "region"]
+    : parseSerialByFields(undefined, format);
 }
 
 function normalizeSortField(value) {
-  const field = String(value).replace(/[{}]/g, "").toLowerCase();
+  const field = String(value).replace(/[{}]/g, "").trim().toLowerCase();
   const aliases = {
     country: "region",
     area: "region",
     region: "region",
     prefix: "prefix",
+    type: "type",
+    protocol: "type",
     route: "route",
     line: "route",
     desc: "route",
     description: "route",
     rate: "rate",
     multiplier: "rate",
+    ability: "ability",
+    capability: "ability",
     tag: "tags",
     tags: "tags",
     serial: "serial",
@@ -151,7 +198,8 @@ function normalizeSortField(value) {
 }
 
 function parseSerialStyle(value) {
-  const style = value === undefined ? "always" : String(value).toLowerCase();
+  const style =
+    value === undefined ? "always" : String(value).trim().toLowerCase();
   if (style === "off" || style === "none" || style === "false") {
     return "off";
   }
@@ -161,13 +209,24 @@ function parseSerialStyle(value) {
   return "always";
 }
 
-function parseRouteStyle(value) {
-  const style = value === undefined ? "auto" : String(value).toLowerCase();
-  return style === "off" || style === "none" || style === "false" ? "off" : "auto";
+function parseRouteOption(value) {
+  const style = value === undefined ? "zh" : String(value).trim().toLowerCase();
+
+  if (style === "off" || style === "none" || style === "false") {
+    return { enabled: false, lang: "zh" };
+  }
+  if (style === "en" || style === "us" || style === "english") {
+    return { enabled: true, lang: "en" };
+  }
+  if (style === "zh" || style === "cn" || style === "chinese") {
+    return { enabled: true, lang: "zh" };
+  }
+
+  return { enabled: true, lang: "zh" };
 }
 
 function parseRateStyle(value) {
-  const style = value === undefined ? "sup" : String(value).toLowerCase();
+  const style = value === undefined ? "plain" : String(value).trim().toLowerCase();
   if (style === "off" || style === "none" || style === "false") {
     return "off";
   }
@@ -180,13 +239,30 @@ function parseRateStyle(value) {
   return "sup";
 }
 
+function parseSpecialLabel(value, legacyValue) {
+  if (value !== undefined) {
+    return safeDecode(value);
+  }
+  if (legacyValue !== undefined) {
+    return safeDecode(legacyValue);
+  }
+  return "特殊";
+}
+
 const inputName =
-  nameMap[inArg.input === undefined ? inArg.in : inArg.input] || "";
+  nameMap[
+    inArg.match === undefined
+      ? inArg.input === undefined
+        ? inArg.in
+        : inArg.input
+      : inArg.match
+  ] || "";
 const regionStyle = parseRegionStyle(inArg.region);
 const SERIAL_PLACEHOLDER = "\u0000SERIAL\u0000";
 const serialBaseNames = new WeakMap();
 const proxyRanks = new WeakMap();
 const proxySortKeys = new WeakMap();
+const proxySerialKeys = new WeakMap();
 const DIRECT_RANK = 0;
 const NORMAL_RANK = 1;
 const UNRESOLVED_RANK = 2;
@@ -213,23 +289,18 @@ const ZH = ['香港','澳门','台湾','日本','韩国','新加坡','美国','�
 // prettier-ignore
 const QC = ['Hong Kong','Macao','Taiwan','Japan','Korea','Singapore','United States','United Kingdom','France','Germany','Australia','Dubai','Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','British Virgin Islands','Brunei','Bulgaria','Burkina-faso','Burundi','Cambodia','Cameroon','Canada','CapeVerde','CaymanIslands','Central African Republic','Chad','Chile','Colombia','Comoros','Congo-Brazzaville','Congo-Kinshasa','CostaRica','Croatia','Cyprus','Czech Republic','Denmark','Djibouti','Dominican Republic','Ecuador','Egypt','EISalvador','Equatorial Guinea','Eritrea','Estonia','Ethiopia','Fiji','Finland','Gabon','Gambia','Georgia','Ghana','Greece','Greenland','Guatemala','Guinea','Guyana','Haiti','Honduras','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Isle of Man','Israel','Italy','Ivory Coast','Jamaica','Jordan','Kazakstan','Kenya','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Lithuania','Luxembourg','Macedonia','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Mauritania','Mauritius','Mexico','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar(Burma)','Namibia','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','NorthKorea','Norway','Oman','Pakistan','Panama','Paraguay','Peru','Philippines','Portugal','PuertoRico','Qatar','Romania','Russia','Rwanda','SanMarino','SaudiArabia','Senegal','Serbia','SierraLeone','Slovakia','Slovenia','Somalia','SouthAfrica','Spain','SriLanka','Sudan','Suriname','Swaziland','Sweden','Switzerland','Syria','Tajikstan','Tanzania','Thailand','Togo','Tonga','TrinidadandTobago','Tunisia','Turkey','Turkmenistan','U.S.Virgin Islands','Uganda','Ukraine','Uruguay','Uzbekistan','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe','Andorra','Reunion','Poland','Guam','Vatican','Liechtensteins','Curacao','Seychelles','Antarctica','Gibraltar','Cuba','Faroe Islands','Ahvenanmaa','Bermuda','Timor-Leste'];
 
-const specialRegex = [
-  /(\d\.)?\d+×|ˣ[⁰¹²³⁴⁵⁶⁷⁸⁹·]+/,
-  /IPLC|IEPL|Kern|Edge|Pro|Std|Exp|Biz|Fam|Game|Buy|Zx|LB|Game/,
+const abilityRules = [
+  { regex: /原生|native/i, value: "原生" },
+  { regex: /\bgpt\b|chatgpt|openai/i, value: "GPT" },
+  { regex: /\bai\b|人工智能/i, value: "AI" },
 ];
-const nameclear =
-  /(套餐|到期|有效|剩余|版本|已用|过期|失联|测试|官方|网址|备用|群|TEST|客服|网站|获取|订阅|流量|机场|下次|官址|联系|邮箱|工单|学术|USE|USED|TOTAL|EXPIRE|EMAIL)/i;
 // prettier-ignore
-const regexArray = [/ˣ²/, /ˣ³/, /ˣ⁴/, /ˣ⁵/, /ˣ⁶/, /ˣ⁷/, /ˣ⁸/, /ˣ⁹/, /ˣ¹⁰/, /ˣ²⁰/, /ˣ³⁰/, /ˣ⁴⁰/, /ˣ⁵⁰/, /IPLC/i, /IEPL/i, /核心/, /边缘/, /高级/, /标准/, /实验/, /商宽/, /家宽/, /游戏|game/i, /购物/, /专线/, /LB/, /cloudflare/i, /\budp\b/i, /\bgpt\b/i, /udpn\b/];
+const regexArray = [/ˣ²/, /ˣ³/, /ˣ⁴/, /ˣ⁵/, /ˣ⁶/, /ˣ⁷/, /ˣ⁸/, /ˣ⁹/, /ˣ¹⁰/, /ˣ²⁰/, /ˣ³⁰/, /ˣ⁴⁰/, /ˣ⁵⁰/, /IPLC/i, /IEPL/i, /核心/, /边缘/, /高级/, /标准/, /实验/, /商宽/, /家宽/, /游戏|game/i, /购物/, /专线/, /LB/, /cloudflare/i, /\budp\b/i, /udpn\b/];
 // prettier-ignore
-const valueArray = ["2×","3×","4×","5×","6×","7×","8×","9×","10×","20×","30×","40×","50×","IPLC","IEPL","Kern","Edge","Pro","Std","Exp","Biz","Fam","Game","Buy","Zx","LB","CF","UDP","GPT","UDPN"];
+const valueArray = ["2×","3×","4×","5×","6×","7×","8×","9×","10×","20×","30×","40×","50×","IPLC","IEPL","Kern","Edge","Pro","Std","Exp","Biz","Fam","Game","Buy","Zx","LB","CF","UDP","UDPN"];
+// prettier-ignore
+const routeValueArrayZh = ["IPLC","IEPL","核心","边缘","高级","标准","实验","商宽","家宽","游戏","购物","专线","LB","CF","UDP","UDPN"];
 const routeRegexStartIndex = 13;
-const nameblnx = /(高倍|(?!1)2+(x|倍)|ˣ²|ˣ³|ˣ⁴|ˣ⁵|ˣ¹⁰)/i;
-const namenx = /(高倍|(?!1)(0\.|\d)+(x|倍)|ˣ²|ˣ³|ˣ⁴|ˣ⁵|ˣ¹⁰)/i;
-const keya =
-  /港|Hong|HK|新加坡|SG|Singapore|日本|Japan|JP|美国|United States|US|韩|土耳其|TR|Turkey|Korea|KR|🇸🇬|🇭🇰|🇯🇵|🇺🇸|🇰🇷|🇹🇷/i;
-const keyb =
-  /(((1|2|3|4)\d)|(香港|Hong|HK) 0[5-9]|((新加坡|SG|Singapore|日本|Japan|JP|美国|United States|US|韩|土耳其|TR|Turkey|Korea|KR) 0[3-9]))/i;
 const rurekey = {
   GB: /UK/g,
   "B-G-P": /BGP/g,
@@ -270,19 +341,23 @@ const rurekey = {
 
 // 根据参数预构建匹配表，后续每个节点直接复用，避免重复拼装国家/地区映射。
 const countryEntries = buildCountryEntries();
+const aliasEntries = buildAliasEntries();
+const routeEntries = buildRouteEntries();
 
 function operator(proxies) {
   if (!Array.isArray(proxies)) {
     return [];
   }
 
-  let result = filterProxies(proxies);
+  let result = proxies.filter(isProxyObject);
   const tagRules = parseTagRules(options.tags);
 
   result.forEach(function renameProxy(proxy) {
     const originalName = stringify(proxy.name);
-
-    applyBlockQuic(proxy);
+    if (originalName.trim() === "") {
+      proxy.name = null;
+      return;
+    }
 
     if (isDirectName(originalName)) {
       proxy.name = originalName;
@@ -291,28 +366,36 @@ function operator(proxies) {
     }
 
     let workingName = normalizeAliases(originalName);
+    const type = getProxyType(proxy);
+    const ability = collectAbility(originalName + " " + workingName);
     const tags = collectTags(originalName + " " + workingName, tagRules);
-    const route = options.route === "off" ? "" : findRoute(workingName);
+    const route = options.routeEnabled ? findRoute(workingName) : "";
     const rate = options.rate === "off" ? "" : findRate(workingName);
     const matchedCountry = findCountry(workingName);
 
     if (matchedCountry) {
-      const fields = buildMatchedFields(matchedCountry, tags, rate, route);
+      const fields = buildMatchedFields(
+        matchedCountry,
+        type,
+        ability,
+        tags,
+        rate,
+        route
+      );
       proxy.name = renderFormat(fields);
       proxySortKeys.set(
         proxy,
         buildProxySortKey(fields, matchedCountry, originalName)
       );
+      proxySerialKeys.set(
+        proxy,
+        buildProxySerialKey(fields, matchedCountry, originalName)
+      );
       return;
     }
 
-    if (isInternalCodeName(originalName)) {
-      proxy.name = joinName([options.unresolved, originalName]);
-      proxyRanks.set(proxy, UNRESOLVED_RANK);
-      return;
-    }
-
-    proxy.name = options.nm ? joinName([options.prefix, workingName]) : null;
+    proxy.name = joinName([options.special, originalName]);
+    proxyRanks.set(proxy, UNRESOLVED_RANK);
   });
 
   result = result.filter(function hasName(proxy) {
@@ -328,25 +411,15 @@ function operator(proxies) {
     }
   }
 
-  if (options.blpx) {
-    result = sortSpecialGroups(result);
-  }
-
-  if (options.key) {
-    result = result.filter(function keepKeyName(proxy) {
-      return !keyb.test(proxy.name);
-    });
-  }
-
-  return sortPinnedProxies(result);
+  return result;
 }
 
 function isDirectName(name) {
   return /^direct$/i.test(name.trim());
 }
 
-function isInternalCodeName(name) {
-  return /^[A-Za-z]+(?:-[A-Za-z0-9]+)+-\d+$/.test(name.trim());
+function isProxyObject(proxy) {
+  return proxy !== null && typeof proxy === "object";
 }
 
 // 保持数组顺序：先按输入格式识别，再映射到输出格式。
@@ -366,47 +439,53 @@ function buildCountryEntries() {
   return entries;
 }
 
-// 过滤阶段只处理会删除节点的参数，重命名逻辑留给 operator 的主流程。
-function filterProxies(proxies) {
-  if (!(options.clear || options.nx || options.blnx || options.key)) {
-    return proxies;
-  }
-
-  return proxies.filter(function shouldKeep(proxy) {
-    const proxyName = stringify(proxy.name);
-    return (
-      !(options.clear && nameclear.test(proxyName)) &&
-      !(options.nx && namenx.test(proxyName)) &&
-      !(options.blnx && !nameblnx.test(proxyName)) &&
-      !(options.key && !(keya.test(proxyName) && /2|4|6|7/i.test(proxyName)))
-    );
+function buildAliasEntries() {
+  return Object.keys(rurekey).map(function mapAlias(aliasName) {
+    return {
+      name: aliasName,
+      regex: rurekey[aliasName],
+    };
   });
+}
+
+function buildRouteEntries() {
+  const entries = [];
+  for (let index = routeRegexStartIndex; index < regexArray.length; index++) {
+    entries.push({
+      regex: regexArray[index],
+      en: valueArray[index],
+      zh: routeValueArrayZh[index - routeRegexStartIndex] || valueArray[index],
+    });
+  }
+  return entries;
 }
 
 // 把常见别名和城市名归一化，提升后续国家/地区识别命中率。
 function normalizeAliases(name) {
   let normalized = name;
-  Object.keys(rurekey).forEach(function replaceAlias(aliasName) {
-    const regex = rurekey[aliasName];
-    if (regexTest(regex, normalized)) {
-      normalized = regexReplace(normalized, regex, aliasName);
+  aliasEntries.forEach(function replaceAlias(item) {
+    if (regexTest(item.regex, normalized)) {
+      normalized = regexReplace(normalized, item.regex, item.name);
     }
   });
   return normalized;
 }
 
-// block-quic 是节点级配置：只接受 on/off，其他输入清理已有字段。
-function applyBlockQuic(proxy) {
-  if (options.blockquic === "on") {
-    proxy["block-quic"] = "on";
-  } else if (options.blockquic === "off") {
-    proxy["block-quic"] = "off";
-  } else {
-    delete proxy["block-quic"];
-  }
+function getProxyType(proxy) {
+  return stringify(proxy.type || proxy.protocol || proxy["proxy-type"]).toLowerCase();
 }
 
 // tags 使用 source>display 格式，未指定 display 时保留 source 自身。
+function collectAbility(name) {
+  const retained = [];
+  abilityRules.forEach(function collectBuiltin(item) {
+    if (regexTest(item.regex, name) && retained.indexOf(item.value) === -1) {
+      retained.push(item.value);
+    }
+  });
+  return retained;
+}
+
 function collectTags(name, tagRules) {
   const retained = [];
   tagRules.forEach(function collect(item) {
@@ -442,13 +521,19 @@ function parseTagRules(value) {
 
 // route 线路属性采用“先命中优先”，让 IPLC/IEPL 等强线路标签优先于用途标签。
 function findRoute(name) {
-  for (let index = routeRegexStartIndex; index < regexArray.length; index++) {
-    const regex = regexArray[index];
-    if (regexTest(regex, name)) {
-      return valueArray[index];
+  for (let index = 0; index < routeEntries.length; index++) {
+    if (regexTest(routeEntries[index].regex, name)) {
+      return getRouteValue(routeEntries[index]);
     }
   }
   return "";
+}
+
+function getRouteValue(entry) {
+  if (options.routeLanguage === "en") {
+    return entry.en;
+  }
+  return entry.zh;
 }
 
 // rate 倍率只保留非 1 倍标记，显示样式由 rate 参数控制。
@@ -479,40 +564,38 @@ function findCountry(name) {
 }
 
 // 按 format 组装标准字段，字段为空时跳过，不留下多余分隔符。
-function buildMatchedFields(country, tags, rate, route) {
+function buildMatchedFields(country, type, ability, tags, rate, route) {
   return {
     prefix: options.prefix,
+    type: type,
     region: buildCountryDisplay(country),
     serial: options.serial === "off" ? "" : SERIAL_PLACEHOLDER,
     route: route,
     rate: rate,
+    ability: ability,
     tags: tags,
   };
 }
 
 function renderFormat(fields) {
   const rendered = [];
-  const tokens = options.format.trim().split(/\s+/);
 
-  tokens.forEach(function renderToken(token) {
-    const exactMatch = token.match(/^\{([A-Za-z][A-Za-z0-9_]*)\}$/);
-    if (exactMatch) {
-      addField(rendered, fields[exactMatch[1]]);
+  options.formatTokens.forEach(function renderToken(token) {
+    if (token.exactField) {
+      addField(rendered, fields[token.exactField]);
       return;
     }
 
-    const fieldNames = [];
-    const text = token.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function replaceField(
+    const text = token.template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function replaceField(
       match,
       fieldName
     ) {
-      fieldNames.push(fieldName);
       return stringifyField(fields[fieldName]);
     });
 
     if (
-      fieldNames.length === 0 ||
-      fieldNames.every(function hasValue(fieldName) {
+      token.fieldNames.length === 0 ||
+      token.fieldNames.every(function hasValue(fieldName) {
         return !isEmptyField(fields[fieldName]);
       })
     ) {
@@ -542,7 +625,7 @@ function stringifyField(value) {
       .filter(function keepPart(part) {
         return !isEmptyField(part);
       })
-      .join(options.fgf);
+      .join(FIELD_SEPARATOR);
   }
   return isEmptyField(value) ? "" : String(value);
 }
@@ -619,20 +702,27 @@ function toSuperscriptRate(value) {
 }
 
 function appendSerialNumbers(proxies) {
-  const groupsByName = new Map();
+  const groupsBySerialKey = new Map();
   const groups = [];
-  const flattened = [];
+  const leadingPinned = [];
+  const trailingPinned = [];
 
   proxies.forEach(function addProxy(proxy) {
-    if (getProxyRank(proxy) !== NORMAL_RANK) {
-      flattened.push(proxy);
+    const rank = getProxyRank(proxy);
+    if (rank !== NORMAL_RANK) {
+      if (rank < NORMAL_RANK) {
+        leadingPinned.push(proxy);
+      } else {
+        trailingPinned.push(proxy);
+      }
       return;
     }
 
-    let group = groupsByName.get(proxy.name);
+    const serialKey = getProxySerialKey(proxy);
+    let group = groupsBySerialKey.get(serialKey);
     if (!group) {
-      group = { name: proxy.name, items: [] };
-      groupsByName.set(proxy.name, group);
+      group = { key: serialKey, items: [] };
+      groupsBySerialKey.set(serialKey, group);
       groups.push(group);
     }
 
@@ -645,13 +735,20 @@ function appendSerialNumbers(proxies) {
     if (proxySortKeys.has(proxy)) {
       proxySortKeys.set(renamedProxy, proxySortKeys.get(proxy));
     }
+    if (proxySerialKeys.has(proxy)) {
+      proxySerialKeys.set(renamedProxy, proxySerialKeys.get(proxy));
+    }
     group.items.push(renamedProxy);
   });
 
+  const flattened = leadingPinned.slice();
   groups.forEach(function addGroup(group) {
     group.items.forEach(function addItem(item) {
       flattened.push(item);
     });
+  });
+  trailingPinned.forEach(function addPinned(proxy) {
+    flattened.push(proxy);
   });
 
   proxies.splice.apply(proxies, [0, proxies.length].concat(flattened));
@@ -666,16 +763,16 @@ function removeSingletonSerial(proxies) {
       return;
     }
 
-    const baseName = getSerialBaseName(proxy);
-    if (!groups.has(baseName)) {
-      groups.set(baseName, []);
+    const serialKey = getProxySerialKey(proxy);
+    if (!groups.has(serialKey)) {
+      groups.set(serialKey, []);
     }
-    groups.get(baseName).push(proxy);
+    groups.get(serialKey).push(proxy);
   });
 
-  groups.forEach(function removeOne(items, baseName) {
+  groups.forEach(function removeOne(items) {
     if (items.length === 1 && hasFirstSerial(items[0])) {
-      items[0].name = baseName;
+      items[0].name = getSerialBaseName(items[0]);
     }
   });
 
@@ -687,7 +784,7 @@ function insertSerialNumber(name, serial) {
     return name.replace(SERIAL_PLACEHOLDER, serial);
   }
 
-  return name + options.fgf + serial;
+  return name + FIELD_SEPARATOR + serial;
 }
 
 function removeSerialPlaceholder(name) {
@@ -697,11 +794,11 @@ function removeSerialPlaceholder(name) {
 
   return name
     .replace(SERIAL_PLACEHOLDER, "")
-    .split(options.fgf)
+    .split(FIELD_SEPARATOR)
     .filter(function keepPart(part) {
       return part !== "";
     })
-    .join(options.fgf);
+    .join(FIELD_SEPARATOR);
 }
 
 function getSerialBaseName(proxy) {
@@ -748,15 +845,7 @@ function getProxyRank(proxy) {
 }
 
 function buildProxySortKey(fields, country, originalName) {
-  const sortValues = {
-    prefix: stringifyField(fields.prefix),
-    region: getList("us")[country.index],
-    serial: "",
-    route: stringifyField(fields.route),
-    rate: stringifyField(fields.rate),
-    tags: stringifyField(fields.tags),
-    name: stringify(originalName),
-  };
+  const sortValues = buildSortValues(fields, country, originalName);
   const keys = options.sort.map(function getValue(field) {
     return sortValues[field] || "";
   });
@@ -765,42 +854,34 @@ function buildProxySortKey(fields, country, originalName) {
   return keys.join("\u0000");
 }
 
+function buildProxySerialKey(fields, country, originalName) {
+  const sortValues = buildSortValues(fields, country, originalName);
+  const keys = options.serialBy.map(function getValue(field) {
+    return sortValues[field] || "";
+  });
+  return keys.join("\u0000");
+}
+
+function buildSortValues(fields, country, originalName) {
+  return {
+    prefix: stringifyField(fields.prefix),
+    type: stringifyField(fields.type),
+    region: getList("us")[country.index],
+    serial: "",
+    route: stringifyField(fields.route),
+    rate: stringifyField(fields.rate),
+    ability: stringifyField(fields.ability),
+    tags: stringifyField(fields.tags),
+    name: stringify(originalName),
+  };
+}
+
 function getProxySortKey(proxy) {
   return proxySortKeys.has(proxy) ? proxySortKeys.get(proxy) : stringify(proxy.name);
 }
 
-function sortSpecialGroups(proxies) {
-  const withSpecial = [];
-  const withoutSpecial = [];
-
-  proxies.forEach(function split(proxy) {
-    const rank = getSpecialRank(proxy.name);
-    if (rank === -1) {
-      withoutSpecial.push(proxy);
-    } else {
-      withSpecial.push({ proxy: proxy, rank: rank });
-    }
-  });
-
-  withSpecial.sort(function sortByRank(a, b) {
-    const rankDiff = a.rank - b.rank;
-    return rankDiff || a.proxy.name.localeCompare(b.proxy.name);
-  });
-
-  return withoutSpecial.concat(
-    withSpecial.map(function unwrap(item) {
-      return item.proxy;
-    })
-  );
-}
-
-function getSpecialRank(name) {
-  for (let index = 0; index < specialRegex.length; index++) {
-    if (regexTest(specialRegex[index], name)) {
-      return index;
-    }
-  }
-  return -1;
+function getProxySerialKey(proxy) {
+  return proxySerialKeys.has(proxy) ? proxySerialKeys.get(proxy) : proxy.name;
 }
 
 function joinName(parts) {
@@ -822,7 +903,7 @@ function joinName(parts) {
     }
   });
 
-  return normalized.join(options.fgf);
+  return normalized.join(FIELD_SEPARATOR);
 }
 
 function regexTest(regex, value) {
@@ -843,6 +924,15 @@ function resetRegex(regex) {
 
 function stringify(value) {
   return value === undefined || value === null ? "" : String(value);
+}
+
+function safeDecode(value) {
+  const text = stringify(value);
+  try {
+    return decodeURI(text);
+  } catch (error) {
+    return text;
+  }
 }
 
 function pad2(value) {

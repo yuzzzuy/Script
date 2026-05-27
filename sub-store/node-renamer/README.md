@@ -1,66 +1,52 @@
-# Sub-Store Node Renamer
+# Sub-Store Node Renamer 参数说明书
 
-一个用于 Sub-Store 的节点重命名脚本。脚本会先把节点名解析成标准字段，再通过 `format` 模板组装最终名称，适合需要统一地区、编号、线路属性、倍率和自定义标签的订阅整理场景。
+这个脚本用于统一 Sub-Store 节点名称。它会先从原始节点名和节点对象里解析出标准字段，再用 `format` 组装最终名称。
 
-## Features
-
-- 支持自动识别中文名、英文缩写、英文全名和国旗地区。
-- 支持按标准字段组装节点名：`prefix`、`region`、`serial`、`route`、`rate`、`tags`。
-- 支持 `format` 自定义字段顺序，字段为空时自动跳过，不留下多余分隔符。
-- 支持 `sort` 自定义排序字段，默认跟随 `format` 的字段顺序，可组合多个字段分组排序。
-- 支持两字中文地区名视觉对齐，例如 `香　港`、`日　本`、`美　国`。
-- 支持倍率显示为上标、普通文本或括号样式。
-- 支持提取线路属性，例如 `IPLC`、`IEPL`、`家宽`、`Game`、`GPT`。
-- 支持保留国家识别不出的内部编号节点并放到末尾，例如 `Fast-B1-1`。
-- 支持将 `DIRECT` / `direct` 直连节点固定放到最前。
-- 台湾省显示为中国国旗。
-
-## Usage
-
-在 Sub-Store 的脚本操作中添加 `rename.optimized.js`，参数以 `#` 开头，多个参数使用 `&` 连接。
+默认输出格式：
 
 ```text
-#region=all&rate=sup&route=auto
+{prefix} {region} {serial} {route} {rate} ({type}) {ability} {tags}
 ```
 
-完整示例：
+默认排序和编号依据：
 
 ```text
-#prefix=VIP&region=all&route=auto&rate=sup&tags=A>原生+GPT&format={prefix}%20{region}%20{serial}%20{route}%20{rate}%20{tags}
+sort=prefix,region
+serialBy=prefix,region
 ```
 
-示例输出：
+字段为空时会自动跳过。例如没有 `type` 时，`({type})` 会整块跳过，不会留下空括号。
 
-```text
-VIP 🇭🇰 香　港（HK） 01 IPLC ˣ² 原生 GPT
-```
+## 标准字段
 
-## Naming Model
+| Field | 含义 | 来源 | 示例 |
+| --- | --- | --- | --- |
+| `prefix` | 自定义前缀 | 参数 `prefix` | `VIP` |
+| `region` | 国家/地区显示 | 节点名识别 + 参数 `region` | `🇭🇰 香　港（HK）` |
+| `serial` | 编号 | 参数 `serial` / `serialBy` | `01` |
+| `route` | 线路描述 | 节点名识别 + 参数 `route` | `家宽` |
+| `rate` | 倍率 | 节点名识别 + 参数 `rate` | `2×` |
+| `type` | 协议类型 | 节点对象 `type` / `protocol` / `proxy-type` | `vless` |
+| `ability` | 能力信息 | 内置识别 | `原生 GPT` |
+| `tags` | 自定义保留标签 | 参数 `tags` | `流媒` |
 
-脚本会把每个节点解析为以下标准字段：
+## 参数总览
 
-| Field | Description | Example |
+| 参数 | 默认值 | 作用 |
 | --- | --- | --- |
-| `prefix` | 自定义前缀，默认空 | `VIP` |
-| `region` | 地区显示 | `🇭🇰 香　港（HK）` |
-| `serial` | 编号 | `01` |
-| `route` | 线路属性 | `IPLC` |
-| `rate` | 倍率 | `ˣ²` |
-| `tags` | 保留标签 | `原生 GPT` |
+| `prefix` | 空 | 给所有正常节点添加前缀 |
+| `match` | `auto` | 控制国家/地区识别使用的输入类型 |
+| `region` | `all` | 控制地区字段显示样式 |
+| `serial` | `always` | 控制编号是否显示 |
+| `serialBy` | `prefix,region` | 控制编号按哪些字段分组 |
+| `route` | `zh` | 控制线路描述语言或关闭线路描述 |
+| `rate` | `plain` | 控制倍率显示样式 |
+| `tags` | 空 | 自定义关键词保留/替换 |
+| `format` | 见默认格式 | 控制最终字段顺序 |
+| `sort` | `prefix,region` | 控制最终节点排序 |
+| `special` | `特殊` | 控制无法识别国家/地区节点的前置标识 |
 
-默认模板：
-
-```text
-{prefix} {region} {serial} {route} {rate} {tags}
-```
-
-如果某个字段为空，会自动跳过。例如 `prefix` 和 `tags` 为空时：
-
-```text
-🇭🇰 香　港（HK） 01 IPLC ˣ²
-```
-
-## Parameters
+## 参数详解
 
 ### `prefix`
 
@@ -70,23 +56,23 @@ VIP 🇭🇰 香　港（HK） 01 IPLC ˣ² 原生 GPT
 #prefix=VIP
 ```
 
-### `input`
+### `match`
 
-控制地区输入识别格式，默认自动识别。
+控制国家/地区识别使用的输入类型，默认 `auto`。
 
-| Value | Description |
+| 值 | 说明 |
 | --- | --- |
 | `auto` | 自动识别中文名、国旗、英文全名、英文缩写 |
-| `name` / `cn` / `zh` | 只按中文地区名识别 |
-| `code` / `abbr` / `us` | 只按英文缩写识别 |
-| `full` / `quan` | 只按英文全名识别 |
-| `flag` / `gq` | 只按国旗识别 |
+| `name` | 只按中文地区名识别 |
+| `code` | 只按英文缩写识别 |
+| `full` | 只按英文全名识别 |
+| `flag` | 只按国旗识别 |
 
 ### `region`
 
-控制地区字段的显示样式。
+控制地区字段显示样式，默认 `all`。
 
-| Value | Example |
+| 值 | 示例 |
 | --- | --- |
 | `all` | `🇭🇰 香　港（HK）` |
 | `flag-name` | `🇭🇰 香　港` |
@@ -96,180 +82,163 @@ VIP 🇭🇰 香　港（HK） 01 IPLC ˣ² 原生 GPT
 | `full` | `Hong Kong` |
 | `name-code` | `香　港（HK）` |
 
-默认值：`all`。
+台湾省的国旗会统一显示为中国国旗。
 
 ### `serial`
 
-控制编号字段。
+控制编号字段，默认 `always`。
 
-| Value | Description |
+| 值 | 说明 |
 | --- | --- |
-| `always` | 总是显示编号，默认值 |
-| `auto` | 仅同名节点重复时显示编号 |
+| `always` | 总是显示编号 |
+| `auto` | 仅同组节点重复时显示编号 |
 | `off` | 不显示编号 |
+
+### `serialBy`
+
+控制编号分组依据，默认 `prefix,region`。同一个前缀、同一个地区会连续编号，即使协议、线路、倍率不同，也继续递增。
+
+```text
+#serialBy=prefix,region
+#serialBy=type,region
+```
+
+可用字段：
+
+```text
+prefix,type,region,route,rate,ability,tags,name
+```
 
 ### `route`
 
-控制线路属性字段。
+控制线路描述字段，默认 `zh`。
 
-| Value | Description |
+| 值 | 说明 |
 | --- | --- |
-| `auto` | 自动提取线路属性，默认值 |
-| `off` | 不显示线路属性 |
+| `zh` | 中文线路描述，例如 `家宽`、`游戏`、`专线` |
+| `en` | 英文缩写，例如 `Fam`、`Game`、`Zx` |
+| `off` | 不显示线路描述 |
 
-常见线路属性包括：`IPLC`、`IEPL`、`Kern`、`Edge`、`Pro`、`Std`、`Exp`、`Biz`、`Fam`、`Game`、`Buy`、`Zx`、`LB`、`CF`、`UDP`、`GPT`、`UDPN`。
+`IPLC`、`IEPL`、`LB`、`CF`、`UDP`、`UDPN` 这类常见缩写在中文模式下也保留缩写。
 
 ### `rate`
 
-控制倍率字段。
+控制倍率字段，默认 `plain`。
 
-| Value | Example |
+| 值 | 示例 |
 | --- | --- |
-| `sup` | `ˣ²` |
 | `plain` | `2×` |
+| `sup` | `ˣ²` |
 | `paren` | `(2×)` |
 | `off` | 不显示倍率 |
 
-默认值：`sup`。
-
 ### `tags`
 
-控制保留标签。使用 `+` 分隔多个规则，使用 `source>display` 设置替换显示。
+自定义关键词保留/替换。内置能力信息 `原生`、`GPT`、`AI` 会进入 `ability` 字段；`tags` 只处理你自己配置的规则。
+
+规则格式：
 
 ```text
-#tags=原生+GPT+A>高级
+#tags=原关键词>输出标签+另一个关键词>另一个标签
 ```
 
-含义：
+示例：
 
-- 节点名包含 `原生` 时，输出 `原生`
-- 节点名包含 `GPT` 时，输出 `GPT`
-- 节点名包含 `A` 时，输出 `高级`
+```text
+#tags=流媒体>流媒+晚高峰>晚峰
+```
 
 ### `format`
 
-控制最终字段顺序。字段为空时自动跳过。
+控制最终字段顺序。字段为空会自动跳过。
+
+默认值：
 
 ```text
-#format={prefix}%20{region}%20{serial}%20{route}%20{rate}%20{tags}
+{prefix} {region} {serial} {route} {rate} ({type}) {ability} {tags}
 ```
 
-把编号放到最后：
+示例：
 
 ```text
-#format={prefix}%20{region}%20{route}%20{rate}%20{tags}%20{serial}
+#format={prefix}%20{region}%20{serial}%20{route}%20{rate}%20({type})%20{ability}%20{tags}
 ```
 
 ### `sort`
 
-控制最终节点排序字段，默认跟随 `format` 中出现的字段顺序。排序发生在编号生成前，所以同一组节点会先排到一起，再分配编号。
+控制最终节点排序，默认 `prefix,region`。支持多个字段组合排序，类似 SQL 的 `ORDER BY`。
 
 ```text
-#sort=region,route,rate
+#sort=prefix,region,route,rate,ability,tags,name
 ```
 
-支持的字段：
-
-| Field | Description |
-| --- | --- |
-| `prefix` | 按自定义前缀排序 |
-| `region` | 按地区排序 |
-| `route` | 按线路属性排序 |
-| `rate` | 按倍率排序 |
-| `tags` | 按保留标签排序 |
-| `name` | 按原始节点名排序 |
-
-例如先按线路属性分组，再按地区分组：
+可用字段：
 
 ```text
-#sort=route,region
+prefix,type,region,serial,route,rate,ability,tags,name
 ```
 
-### `unresolved`
+排序固定规则：
 
-控制未解析内部编号节点的前置标识，默认值为 `特殊`。
+- `DIRECT` / `direct` 永远排最前。
+- 正常可识别地区的节点排中间。
+- 无法识别地区的节点排最后。
+
+### `special`
+
+控制无法识别国家/地区节点的前置标识，默认 `特殊`。
 
 ```text
-#unresolved=未识别
+#special=未识别
 ```
 
-国家识别不出的内部编号节点不会参与线路、倍率解析，会保留原始名称并放到正常节点后面：
+示例：
 
 ```text
 特殊 Fast-B1-1
 ```
 
-`DIRECT` / `direct` 直连节点会保留原名并固定放到列表最前：
+## 大用例
+
+参数：
+
+```text
+#prefix=VIP&match=auto&region=all&serial=always&serialBy=prefix,region&route=zh&rate=plain&tags=流媒体>流媒+晚高峰>晚峰&format={prefix}%20{region}%20{serial}%20{route}%20{rate}%20({type})%20{ability}%20{tags}&sort=prefix,region,route,rate,ability,tags,name&special=特殊
+```
+
+输入节点：
+
+| 原始名称 | type | 说明 |
+| --- | --- | --- |
+| `DIRECT` | 空 | 直连节点 |
+| `Korea 家宽 6x 原生 GPT 流媒体` | `trojan` | 韩国、家宽、6 倍、原生、GPT、自定义标签 |
+| `Korea 家宽 AI 晚高峰` | `vless` | 韩国、家宽、AI、自定义标签 |
+| `Hong Kong IPLC 2x 原生` | `vless` | 香港、IPLC、2 倍、原生 |
+| `TW 游戏 3x GPT` | `ss` | 台湾省、游戏、3 倍、GPT |
+| `Fast-B1-1` | `ss` | 无法识别国家/地区 |
+
+输出示例：
 
 ```text
 DIRECT
-direct
+VIP 🇭🇰 香　港（HK） 01 IPLC 2× (vless) 原生
+VIP 🇰🇷 韩　国（KR） 01 家宽 6× (trojan) 原生 GPT 流媒
+VIP 🇰🇷 韩　国（KR） 02 家宽 (vless) AI 晚峰
+VIP 🇨🇳 台　湾（TW） 01 游戏 3× (ss) GPT
+特殊 Fast-B1-1
 ```
 
-### Other Options
+说明：
 
-这些参数保留为过滤或节点配置用途：
-
-| Parameter | Description |
-| --- | --- |
-| `clear` | 过滤套餐、到期、流量、官网、客服等信息节点 |
-| `nx` | 过滤倍率节点 |
-| `blnx` | 只保留高倍率节点 |
-| `key` | 使用脚本内置关键地区和编号规则过滤节点 |
-| `blpx` | 将带倍率或线路属性的节点归组排序 |
-| `blockquic=on` | 设置节点 `block-quic` 为 `on` |
-| `blockquic=off` | 设置节点 `block-quic` 为 `off` |
-| `nm` | 地区识别失败时仍保留节点 |
-| `fgf` | 字段分隔符，默认空格 |
-
-## Examples
-
-默认风格：
-
-```text
-#region=all&route=auto&rate=sup
-```
-
-```text
-🇭🇰 香　港（HK） 01 IPLC ˣ²
-```
-
-只显示地区缩写：
-
-```text
-#region=code&route=off&rate=off
-```
-
-```text
-HK 01
-```
-
-自定义顺序：
-
-```text
-#prefix=VIP&region=all&route=auto&rate=plain&tags=原生&format={region}%20{route}%20{rate}%20{tags}%20{serial}%20{prefix}
-```
-
-```text
-🇭🇰 香　港（HK） IPLC 2× 原生 01 VIP
-```
-
-重复节点自动编号：
-
-```text
-#serial=auto&region=all&route=auto&rate=sup
-```
-
-```text
-🇭🇰 香　港（HK） 01 IPLC ˣ²
-🇭🇰 香　港（HK） 02 IPLC ˣ²
-```
-
-单个节点在 `serial=auto` 时不显示编号：
-
-```text
-🇭🇰 香　港（HK） IPLC ˣ²
-```
+- `DIRECT` 固定排最前。
+- 香港、韩国、台湾省按地区排序并正常重命名。
+- 韩国两个节点同属 `prefix + region`，所以编号连续为 `01`、`02`。
+- `route=zh` 输出 `家宽`、`游戏` 这类中文线路描述。
+- `rate=plain` 输出 `2×`、`3×`、`6×`。
+- `type` 用 `({type})` 包起来；没有 `type` 时整块跳过。
+- `原生`、`GPT`、`AI` 自动进入 `ability`。
+- `流媒体`、`晚高峰` 根据 `tags` 映射为 `流媒`、`晚峰`。
+- `Fast-B1-1` 无法识别国家/地区，所以加 `特殊` 并排最后。
 
 ## Development
 
@@ -282,5 +251,5 @@ node --check sub-store/node-renamer/rename.optimized.js
 快速行为验证：
 
 ```bash
-node -e 'global.$arguments={region:"all",route:"auto",rate:"sup"}; const {operator}=require("./sub-store/node-renamer/rename.optimized.js"); console.log(operator([{name:"Hong Kong 2x IPLC"}]));'
+node -e 'global.$arguments={region:"all",route:"zh",rate:"plain"}; const {operator}=require("./sub-store/node-renamer/rename.optimized.js"); console.log(operator([{name:"Hong Kong 2x IPLC"}]));'
 ```
