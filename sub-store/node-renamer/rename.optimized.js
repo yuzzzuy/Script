@@ -35,6 +35,12 @@ const DEFAULT_SORT_FIELDS = [
   "name",
 ];
 const DEFAULT_SERIAL_BY_FIELDS = ["prefix", "region"];
+const MAGNETIC_FORMAT_FIELDS = {
+  rate: true,
+  route: true,
+  ability: true,
+  tags: true,
+};
 
 const options = {
   prefix: inArg.prefix === undefined ? "" : safeDecode(inArg.prefix),
@@ -94,7 +100,7 @@ function parseRegionStyle(value) {
 
 function parseFormat(value) {
   const defaultFormat =
-    "{prefix} {region} ({type}) {serial} [{rate}] {route} {ability} {tags}";
+    "{prefix} {region} ({type}) {serial} [{rate}][{route}][{ability}][{tags}]";
   if (value === undefined) {
     return defaultFormat;
   }
@@ -132,6 +138,7 @@ function parseFormatTokens(format) {
       return {
         exactField: "",
         fieldNames: fieldNames,
+        magnetic: isMagneticFormatToken(token),
         template: token,
       };
     });
@@ -298,24 +305,26 @@ const abilityRules = [
   { regex: /\bgpt\b|chatgpt|openai/i, value: "GPT" },
   { regex: /\bai\b|人工智能/i, value: "AI" },
 ];
-const typeAliases = {
-  trojan: "tr",
-  vless: "vl",
-  vmess: "vm",
-  shadowsocks: "ss",
-  shadowsocksr: "ssr",
-  "shadowsocks-r": "ssr",
-  hysteria: "hy",
-  hysteria2: "hy2",
-  "hysteria-2": "hy2",
-  "hysteria-v2": "hy2",
-  wireguard: "wg",
-  "wire-guard": "wg",
-  shadowtls: "stls",
-  "shadow-tls": "stls",
-  tuicv5: "tuic",
-  "tuic-v5": "tuic",
-};
+const builtinTagRules = [
+  {
+    regex: /no[\s-]*geo[\s-]*tag|cross[\s-]*region[\s-]*cluster/i,
+    value: "跨区集群",
+  },
+  { regex: /\bfixed\b|fixed[\s-]*ip/i, value: "固定IP" },
+  { regex: /\bx2\b|2x[\s-]*traffic[\s-]*billing/i, value: "2倍计费" },
+  { regex: /\bipv6\b|dedicated[\s-]*ipv6/i, value: "独享IPv6" },
+  { regex: /\bfast\b|speed[\s-]*priority/i, value: "速度优先" },
+  {
+    regex: /\bbalancer\b|availability[\s-]*priority/i,
+    value: "可用性优先",
+  },
+  { regex: /\bnetflix\b|netflix[\s-]*supported/i, value: "奈飞" },
+  {
+    regex: /\bdedicated\b(?![\s-]*ipv6)|baremetal[\s-]*server/i,
+    value: "独立服务器",
+  },
+  { regex: /\bd[12]\b|no[\s-]*rate[\s-]*limiting/i, value: "不限速" },
+];
 const infoNodeRegex =
   /(套餐|到期|有效|剩余|版本|已用|过期|失联|测试|官方|网址|备用|群|TEST|客服|网站|获取|订阅|流量|机场|下次|重置|建议|提示|公告|通知|官址|联系|邮箱|工单|学术|USE|USED|TOTAL|EXPIRE|EMAIL|距离下次重置|剩余天数|剩余流量)/i;
 const rateRegex =
@@ -524,10 +533,7 @@ function normalizeAliases(name) {
 }
 
 function getProxyType(proxy) {
-  const type = stringify(
-    proxy.type || proxy.protocol || proxy["proxy-type"]
-  ).toLowerCase();
-  return typeAliases[type] || type;
+  return stringify(proxy.type || proxy.protocol || proxy["proxy-type"]).trim();
 }
 
 // tags 使用 source>display 格式，未指定 display 时保留 source 自身。
@@ -543,6 +549,12 @@ function collectAbility(name) {
 
 function collectTags(name, tagRules) {
   const retained = [];
+  builtinTagRules.forEach(function collectBuiltin(item) {
+    if (regexTest(item.regex, name) && retained.indexOf(item.value) === -1) {
+      retained.push(item.value);
+    }
+  });
+
   tagRules.forEach(function collect(item) {
     if (!item.source || name.indexOf(item.source) === -1) {
       return;
@@ -670,19 +682,16 @@ function buildFormatParts(fields) {
       return;
     }
 
-    const text = token.template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function replaceField(
-      match,
-      fieldName
-    ) {
-      return stringifyField(fields[fieldName]);
-    });
+    const text = renderTemplateToken(token, fields);
 
     const hasValue =
       token.fieldNames.length === 0 ||
-      token.fieldNames.every(function hasValue(fieldName) {
+      token.fieldNames[token.magnetic ? "some" : "every"](function hasValue(
+        fieldName
+      ) {
         return !isEmptyField(fields[fieldName]);
       });
-    if (hasValue) {
+    if (hasValue && text !== "") {
       parts.push({
         column: getFormatColumnKey(token.template, 0),
         text: text,
@@ -691,6 +700,84 @@ function buildFormatParts(fields) {
   });
 
   return parts;
+}
+
+function isMagneticFormatToken(token) {
+  const pattern = /\[\{([A-Za-z][A-Za-z0-9_]*)\}\]|\{([A-Za-z][A-Za-z0-9_]*)\}/g;
+  let match = pattern.exec(token);
+  let cursor = 0;
+  let count = 0;
+
+  while (match) {
+    const fieldName = match[1] || match[2];
+    if (
+      match.index !== cursor ||
+      !MAGNETIC_FORMAT_FIELDS[fieldName] ||
+      match[0] === ""
+    ) {
+      return false;
+    }
+    cursor += match[0].length;
+    count += 1;
+    match = pattern.exec(token);
+  }
+
+  return count > 1 && cursor === token.length;
+}
+
+function renderTemplateToken(token, fields) {
+  if (token.magnetic) {
+    return renderMagneticToken(token, fields);
+  }
+
+  return token.template
+    .replace(/\[\{([A-Za-z][A-Za-z0-9_]*)\}\]/g, function replaceWrapped(
+      match,
+      fieldName
+    ) {
+      return isEmptyField(fields[fieldName])
+        ? ""
+        : "[" + stringifyField(fields[fieldName]) + "]";
+    })
+    .replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function replaceField(
+      match,
+      fieldName
+    ) {
+      return stringifyField(fields[fieldName]);
+    });
+}
+
+function renderMagneticToken(token, fields) {
+  const values = [];
+  token.template.replace(
+    /\[\{([A-Za-z][A-Za-z0-9_]*)\}\]|\{([A-Za-z][A-Za-z0-9_]*)\}/g,
+    function collect(match, wrappedFieldName, fieldName) {
+      collectFieldValues(values, fields[wrappedFieldName || fieldName]);
+      return match;
+    }
+  );
+
+  return values
+    .filter(function keepValue(value) {
+      return value !== "";
+    })
+    .map(function wrap(value) {
+      return "[" + value + "]";
+    })
+    .join("");
+}
+
+function collectFieldValues(result, value) {
+  if (Array.isArray(value)) {
+    value.forEach(function collectNested(item) {
+      collectFieldValues(result, item);
+    });
+    return;
+  }
+
+  if (!isEmptyField(value)) {
+    result.push(String(value));
+  }
 }
 
 function addFormatValueParts(parts, fieldName, value) {

@@ -5,7 +5,7 @@
 默认输出格式：
 
 ```text
-{prefix} {region} ({type}) {serial} [{rate}] {route} {ability} {tags}
+{prefix} {region} ({type}) {serial} [{rate}][{route}][{ability}][{tags}]
 ```
 
 默认排序和编号依据：
@@ -15,7 +15,7 @@ sort=prefix,region,type,extra,rate,detail,route,ability,tags,name
 serialBy=prefix,region
 ```
 
-字段为空时会自动跳过。例如没有 `type` 或 `rate` 时，`({type})`、`[{rate}]` 会整块跳过，不会留下空括号或空中括号。
+字段为空时会自动跳过。例如没有 `type` 或标签信息时，`({type})`、`[{rate}][{route}][{ability}][{tags}]` 会整块跳过，不会留下空括号或多余空格。
 
 ## 标准字段
 
@@ -26,7 +26,7 @@ serialBy=prefix,region
 | `serial` | 编号 | 参数 `serial` / `serialBy` | `01` |
 | `route` | 线路描述，支持多个 | 节点名识别 + 参数 `route` | `IPLC 游戏 专线` |
 | `rate` | 倍率 | 节点名识别 + 参数 `rate` | `2×` |
-| `type` | 协议类型，按字典简写 | 节点对象 `type` / `protocol` / `proxy-type` | `vl` / `hy2` |
+| `type` | 协议类型，保留节点对象原值 | 节点对象 `type` / `protocol` / `proxy-type` | `vless` / `hysteria2` |
 | `ability` | 能力信息 | 内置识别 | `原生 GPT` |
 | `tags` | 自定义保留标签 | 参数 `tags` | `流媒` |
 
@@ -137,7 +137,23 @@ prefix,type,region,extra,route,rate,ability,tags,name
 
 ### `tags`
 
-自定义关键词保留/替换。内置能力信息 `原生`、`GPT`、`AI` 会进入 `ability` 字段；`tags` 只处理你自己配置的规则。
+自定义关键词保留/替换。内置能力信息 `原生`、`GPT`、`AI` 会进入 `ability` 字段；节点资源、兼容性、计费和优先级这类信息会进入 `tags` 字段。
+
+内置 `tags` 字典：
+
+| 命中关键词 | 中文标签 |
+| --- | --- |
+| `No Geo Tag` / `Cross-region cluster` | `跨区集群` |
+| `Fixed` / `Fixed IP` | `固定IP` |
+| `X2` / `2x traffic billing` | `2倍计费` |
+| `IPv6` / `Dedicated IPv6` | `独享IPv6` |
+| `Fast` / `Speed priority` | `速度优先` |
+| `Balancer` / `Availability priority` | `可用性优先` |
+| `Netflix` / `Netflix supported` | `奈飞` |
+| `Dedicated` / `Baremetal server` | `独立服务器` |
+| `D1` / `D2` / `No rate limiting` | `不限速` |
+
+参数 `tags` 用来追加你自己的关键词规则。
 
 规则格式：
 
@@ -158,20 +174,30 @@ prefix,type,region,extra,route,rate,ability,tags,name
 默认值：
 
 ```text
-{prefix} {region} ({type}) {serial} [{rate}] {route} {ability} {tags}
+{prefix} {region} ({type}) {serial} [{rate}][{route}][{ability}][{tags}]
 ```
 
 示例：
 
 ```text
-#format={prefix}%20{region}%20({type})%20{serial}%20[{rate}]%20{route}%20{ability}%20{tags}
+#format={prefix}%20{region}%20({type})%20{serial}%20[{rate}][{route}][{ability}][{tags}]
 ```
 
-默认结构是：前缀、国家/地区、类型、编号、倍率、额外信息。倍率默认用 `[{rate}]` 包起来，例如 `[2×]`；线路、能力、自定义标签属于后面的额外信息。
+默认结构是：前缀、国家/地区、类型、编号、标签组。`rate`、`route`、`ability`、`tags` 在同一个 `format` 片段里连续相邻时，会触发“磁吸”渲染，统一输出为连续中括号，例如 `[2×][IPLC][原生]`。
+
+自定义 `format` 仍然使用原始字段，例如 `{rate}`、`{route}`、`{ability}`、`{tags}`。只有这些字段连续挨着时才会磁吸；如果中间有空格、文字或其他分隔符，就完全按你写的格式输出。
+
+```text
+# 磁吸：输出 [2×][IPLC][原生][奈飞]
+#format={region}%20{serial}%20{rate}{route}{ability}{tags}
+
+# 不磁吸：输出 2× IPLC 原生 奈飞
+#format={region}%20{serial}%20{rate}%20{route}%20{ability}%20{tags}
+```
 
 脚本会在最终列表生成后，按每个 `format` 片段所在列的最长显示宽度补齐；中文按双宽字符计算。空字段会跳过，不会为了空倍率列把后面的线路描述推远。
 
-协议类型只按内置字典简写，字典没有的类型保留原样并参与最长宽度计算。例如 `trojan -> tr`、`vless -> vl`、`vmess -> vm`、`shadowsocks -> ss`、`hysteria2 -> hy2`、`wireguard -> wg`、`shadowtls -> stls`。
+协议类型会保留节点对象里的原始值，不做缩写；例如 `trojan` 仍显示为 `trojan`，`vless` 仍显示为 `vless`。最终宽度按完整输出列表计算，长类型会参与对齐。
 
 ### `sort`
 
@@ -224,7 +250,7 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 参数：
 
 ```text
-#prefix=VIP&match=auto&region=all&serial=always&serialBy=prefix,region&route=zh&rate=plain&tags=流媒体>流媒+晚高峰>晚峰&format={prefix}%20{region}%20({type})%20{serial}%20[{rate}]%20{route}%20{ability}%20{tags}&sort=prefix,region,type,extra,rate,detail,route,ability,tags,name&special=特殊
+#prefix=VIP&match=auto&region=all&serial=always&serialBy=prefix,region&route=zh&rate=plain&tags=流媒体>流媒+晚高峰>晚峰&format={prefix}%20{region}%20({type})%20{serial}%20[{rate}][{route}][{ability}][{tags}]&sort=prefix,region,type,extra,rate,detail,route,ability,tags,name&special=特殊
 ```
 
 输入节点：
@@ -232,24 +258,28 @@ prefix,type,region,extra,rate,detail,serial,route,ability,tags,name
 | 原始名称 | type | 说明 |
 | --- | --- | --- |
 | `Korea` | `trojan` | 韩国基础节点 |
-| `Korea 2x` | `trojan` | 韩国、2 倍 |
+| `Korea X2` | `trojan` | 韩国、2 倍计费 |
 | `Korea 家宽 6x 原生 GPT 流媒体` | `trojan` | 韩国、家宽、6 倍、原生、GPT、自定义标签 |
 | `Korea 家宽 AI 晚高峰` | `vless` | 韩国、家宽、AI、自定义标签 |
 | `Hong Kong` | `vless` | 香港基础节点 |
-| `Hong Kong IPLC 2x 原生` | `vless` | 香港、IPLC、2 倍、原生 |
+| `Hong Kong IPLC 2x 原生 Netflix` | `vless` | 香港、IPLC、2 倍、原生、奈飞 |
 | `TW 游戏 3x GPT` | `ss` | 台湾省、游戏、3 倍、GPT |
+| `Japan Dedicated IPv6 D1` | `hysteria2` | 日本、独享 IPv6、不限速 |
+| `US Fast Balancer Fixed` | `vless` | 美国、速度优先、可用性优先、固定 IP |
 | `Fast-B1-1` | `ss` | 无法识别国家/地区 |
 
 输出示例：
 
 ```text
-VIP 🇭🇰 香港（HK） (vl) 01
-VIP 🇭🇰 香港（HK） (vl) 02 [2×] IPLC 原生
-VIP 🇰🇷 韩国（KR） (tr) 01
-VIP 🇰🇷 韩国（KR） (tr) 02 [2×]
-VIP 🇰🇷 韩国（KR） (tr) 03 [6×] 家宽 原生 GPT 流媒
-VIP 🇰🇷 韩国（KR） (vl) 04 家宽 AI   晚峰
-VIP 🇨🇳 台湾（TW） (ss) 01 [3×] 游戏 GPT
+VIP 🇭🇰 香港（HK） (vless)     01
+VIP 🇭🇰 香港（HK） (vless)     02 [2×][IPLC][原生][奈飞]
+VIP 🇯🇵 日本（JP） (hysteria2) 01 [独享IPv6][不限速]
+VIP 🇰🇷 韩国（KR） (trojan)    01
+VIP 🇰🇷 韩国（KR） (trojan)    02 [2×][2倍计费]
+VIP 🇰🇷 韩国（KR） (trojan)    03 [6×][家宽][原生][GPT][流媒]
+VIP 🇰🇷 韩国（KR） (vless)     04 [家宽][AI][晚峰]
+VIP 🇨🇳 台湾（TW） (ss)        01 [3×][游戏][GPT]
+VIP 🇺🇸 美国（US） (vless)     01 [固定IP][速度优先][可用性优先]
 特殊 Fast-B1-1
 ```
 
@@ -260,10 +290,10 @@ VIP 🇨🇳 台湾（TW） (ss) 01 [3×] 游戏 GPT
 - 同地区内会先按 `type` 聚合，再按基础节点、倍率、额外信息长度排序。
 - 韩国节点同属 `prefix + region`，所以编号按最终排序结果连续递增。
 - `route=zh` 输出 `家宽`、`游戏` 这类中文线路描述。
-- 默认 `format` 使用 `[{rate}]`，所以 `rate=plain` 会显示为 `[2×]`、`[3×]`、`[6×]`。
-- `type` 会先按字典简写，再放在地区后面并用 `({type})` 包起来；没有 `type` 时整块跳过。
+- 默认 `format` 让 `rate`、`route`、`ability`、`tags` 连续相邻，所以会显示为 `[2×][IPLC][原生]` 这种连续标签。
+- `type` 保留节点对象原值，再放在地区后面并用 `({type})` 包起来；没有 `type` 时整块跳过。
 - `原生`、`GPT`、`AI` 自动进入 `ability`。
-- `流媒体`、`晚高峰` 根据 `tags` 映射为 `流媒`、`晚峰`。
+- `Fixed`、`Netflix`、`D1` 等内置字典会进入 `tags`；`流媒体`、`晚高峰` 根据参数 `tags` 映射为 `流媒`、`晚峰`。
 - `Fast-B1-1` 无法识别国家/地区，所以加 `特殊` 并排最后。
 
 ## Development
