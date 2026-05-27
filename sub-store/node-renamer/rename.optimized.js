@@ -5,7 +5,7 @@
  * - 参数以 # 开头，多个参数用 & 连接，例如：#region=all&rate=sup&route=zh
  * - 命名先解析为 prefix/type/region/serial/route/rate/ability/tags 字段，再由 format 组装
  * - format 中字段为空会自动跳过，不留下多余分隔符
- * - sort 控制最终排序字段，默认按 prefix + region 排序，支持多个字段组合排序
+ * - sort 控制最终排序字段，默认按 prefix + region + type 分组，再按额外信息复杂度排序
  * - serialBy 控制编号分组字段，默认按 prefix + region 分组
  * - route 控制线路描述语言或开关，默认中文，可切换为英文缩写或关闭
  * - match 控制地区识别输入格式，默认自动识别；region/rate/route/serial/tags 控制各字段显示
@@ -22,13 +22,25 @@ const inArg =
 const parsedFormat = parseFormat(inArg.format);
 const parsedRoute = parseRouteOption(inArg.route);
 const FIELD_SEPARATOR = " ";
+const DEFAULT_SORT_FIELDS = [
+  "prefix",
+  "region",
+  "type",
+  "extra",
+  "rate",
+  "detail",
+  "route",
+  "ability",
+  "tags",
+  "name",
+];
+const DEFAULT_SERIAL_BY_FIELDS = ["prefix", "region"];
 
 const options = {
   prefix: inArg.prefix === undefined ? "" : safeDecode(inArg.prefix),
-  format: parsedFormat,
   formatTokens: parseFormatTokens(parsedFormat),
-  sort: parseSortFields(inArg.sort, parsedFormat),
-  serialBy: parseSerialByFields(inArg.serialBy, parsedFormat),
+  sort: parseSortFields(inArg.sort),
+  serialBy: parseSerialByFields(inArg.serialBy),
   serial: parseSerialStyle(inArg.serial),
   routeEnabled: parsedRoute.enabled,
   routeLanguage: parsedRoute.lang,
@@ -82,7 +94,7 @@ function parseRegionStyle(value) {
 
 function parseFormat(value) {
   const defaultFormat =
-    "{prefix} {region} {serial} {route} {rate} ({type}) {ability} {tags}";
+    "{prefix} {region} ({type}) {serial} [{rate}] {route} {ability} {tags}";
   if (value === undefined) {
     return defaultFormat;
   }
@@ -125,50 +137,37 @@ function parseFormatTokens(format) {
     });
 }
 
-function parseSortFields(value, format) {
-  const source =
-    value === undefined || String(value).trim() === ""
-      ? ["prefix", "region"]
-      : safeDecode(value).split(/[\s,+|>]+/);
-  const fields = [];
-
-  source.forEach(function addSortField(item) {
-    const field = normalizeSortField(item);
-    if (field && fields.indexOf(field) === -1) {
-      fields.push(field);
-    }
-  });
-
-  if (fields.length) {
-    return fields;
-  }
-
-  return value === undefined
-    ? ["prefix", "region"]
-    : parseSortFields(undefined, format);
+function parseSortFields(value) {
+  return parseFieldList(value, DEFAULT_SORT_FIELDS);
 }
 
-function parseSerialByFields(value, format) {
+function parseSerialByFields(value) {
+  return parseFieldList(value, DEFAULT_SERIAL_BY_FIELDS, function allowField(
+    field
+  ) {
+    return field !== "serial";
+  });
+}
+
+function parseFieldList(value, defaults, allowField) {
   const source =
     value === undefined || String(value).trim() === ""
-      ? ["prefix", "region"]
+      ? defaults
       : safeDecode(value).split(/[\s,+|>]+/);
   const fields = [];
 
-  source.forEach(function addSerialField(item) {
+  source.forEach(function addField(item) {
     const field = normalizeSortField(item);
-    if (field && field !== "serial" && fields.indexOf(field) === -1) {
+    if (
+      field &&
+      (!allowField || allowField(field)) &&
+      fields.indexOf(field) === -1
+    ) {
       fields.push(field);
     }
   });
 
-  if (fields.length) {
-    return fields;
-  }
-
-  return value === undefined
-    ? ["prefix", "region"]
-    : parseSerialByFields(undefined, format);
+  return fields.length ? fields : defaults.slice();
 }
 
 function normalizeSortField(value) {
@@ -190,6 +189,12 @@ function normalizeSortField(value) {
     capability: "ability",
     tag: "tags",
     tags: "tags",
+    extra: "extra",
+    extras: "extra",
+    detail: "detail",
+    details: "detail",
+    length: "detail",
+    complexity: "detail",
     serial: "serial",
     number: "serial",
     name: "name",
@@ -294,6 +299,25 @@ const abilityRules = [
   { regex: /\bgpt\b|chatgpt|openai/i, value: "GPT" },
   { regex: /\bai\b|人工智能/i, value: "AI" },
 ];
+const typeAliases = {
+  shadowsocks: "ss",
+  shadowsocksr: "ssr",
+  "shadowsocks-r": "ssr",
+  hysteria: "hy",
+  hysteria2: "hy2",
+  "hysteria-2": "hy2",
+  "hysteria-v2": "hy2",
+  wireguard: "wg",
+  "wire-guard": "wg",
+  shadowtls: "stls",
+  "shadow-tls": "stls",
+  tuicv5: "tuic",
+  "tuic-v5": "tuic",
+};
+const infoNodeRegex =
+  /(套餐|到期|有效|剩余|版本|已用|过期|失联|测试|官方|网址|备用|群|TEST|客服|网站|获取|订阅|流量|机场|下次|重置|建议|提示|公告|通知|官址|联系|邮箱|工单|学术|USE|USED|TOTAL|EXPIRE|EMAIL|距离下次重置|剩余天数|剩余流量)/i;
+const rateRegex =
+  /((倍率|X|x|×)\D?((\d{1,3}\.)?\d+)\D?)|((\d{1,3}\.)?\d+)(倍|X|x|×)/g;
 // prettier-ignore
 const regexArray = [/ˣ²/, /ˣ³/, /ˣ⁴/, /ˣ⁵/, /ˣ⁶/, /ˣ⁷/, /ˣ⁸/, /ˣ⁹/, /ˣ¹⁰/, /ˣ²⁰/, /ˣ³⁰/, /ˣ⁴⁰/, /ˣ⁵⁰/, /IPLC/i, /IEPL/i, /核心/, /边缘/, /高级/, /标准/, /实验/, /商宽/, /家宽/, /游戏|game/i, /购物/, /专线/, /LB/, /cloudflare/i, /\budp\b/i, /udpn\b/];
 // prettier-ignore
@@ -351,10 +375,16 @@ function operator(proxies) {
 
   let result = proxies.filter(isProxyObject);
   const tagRules = parseTagRules(options.tags);
+  const matchedRecords = [];
 
   result.forEach(function renameProxy(proxy) {
     const originalName = stringify(proxy.name);
     if (originalName.trim() === "") {
+      proxy.name = null;
+      return;
+    }
+
+    if (isInfoNode(originalName)) {
       proxy.name = null;
       return;
     }
@@ -382,20 +412,31 @@ function operator(proxies) {
         rate,
         route
       );
-      proxy.name = renderFormat(fields);
-      proxySortKeys.set(
-        proxy,
-        buildProxySortKey(fields, matchedCountry, originalName)
-      );
-      proxySerialKeys.set(
-        proxy,
-        buildProxySerialKey(fields, matchedCountry, originalName)
-      );
+      matchedRecords.push({
+        proxy: proxy,
+        fields: fields,
+        country: matchedCountry,
+        originalName: originalName,
+      });
       return;
     }
 
     proxy.name = joinName([options.special, originalName]);
     proxyRanks.set(proxy, UNRESOLVED_RANK);
+  });
+
+  const columnWidths = buildFormatColumnWidths(matchedRecords);
+
+  matchedRecords.forEach(function renderMatched(record) {
+    record.proxy.name = renderFormat(record.fields, columnWidths);
+    proxySortKeys.set(
+      record.proxy,
+      buildProxySortKey(record.fields, record.country, record.originalName)
+    );
+    proxySerialKeys.set(
+      record.proxy,
+      buildProxySerialKey(record.fields, record.country, record.originalName)
+    );
   });
 
   result = result.filter(function hasName(proxy) {
@@ -416,6 +457,10 @@ function operator(proxies) {
 
 function isDirectName(name) {
   return /^direct$/i.test(name.trim());
+}
+
+function isInfoNode(name) {
+  return regexTest(infoNodeRegex, name);
 }
 
 function isProxyObject(proxy) {
@@ -472,7 +517,10 @@ function normalizeAliases(name) {
 }
 
 function getProxyType(proxy) {
-  return stringify(proxy.type || proxy.protocol || proxy["proxy-type"]).toLowerCase();
+  const type = stringify(
+    proxy.type || proxy.protocol || proxy["proxy-type"]
+  ).toLowerCase();
+  return typeAliases[type] || type;
 }
 
 // tags 使用 source>display 格式，未指定 display 时保留 source 自身。
@@ -519,14 +567,18 @@ function parseTagRules(value) {
     });
 }
 
-// route 线路属性采用“先命中优先”，让 IPLC/IEPL 等强线路标签优先于用途标签。
+// route 线路属性按配置顺序收集，支持 IPLC + 游戏 + 专线 这类多标签组合。
 function findRoute(name) {
+  const routes = [];
   for (let index = 0; index < routeEntries.length; index++) {
     if (regexTest(routeEntries[index].regex, name)) {
-      return getRouteValue(routeEntries[index]);
+      const value = getRouteValue(routeEntries[index]);
+      if (routes.indexOf(value) === -1) {
+        routes.push(value);
+      }
     }
   }
-  return "";
+  return routes;
 }
 
 function getRouteValue(entry) {
@@ -538,19 +590,18 @@ function getRouteValue(entry) {
 
 // rate 倍率只保留非 1 倍标记，显示样式由 rate 参数控制。
 function findRate(name) {
-  const match = name.match(
-    /((倍率|X|x|×)\D?((\d{1,3}\.)?\d+)\D?)|((\d{1,3}\.)?\d+)(倍|X|x|×)/
-  );
-  if (!match) {
-    return "";
+  resetRegex(rateRegex);
+  let match = rateRegex.exec(name);
+
+  while (match) {
+    const numberMatch = match[0].match(/(\d[\d.]*)/);
+    if (numberMatch && Number(numberMatch[0]) !== 1) {
+      return formatRate(numberMatch[0]);
+    }
+    match = rateRegex.exec(name);
   }
 
-  const numberMatch = match[0].match(/(\d[\d.]*)/);
-  if (!numberMatch || numberMatch[0] === "1") {
-    return "";
-  }
-
-  return formatRate(numberMatch[0]);
+  return "";
 }
 
 // 国家/地区识别依赖 countryEntries 的顺序，不能改成无序查找。
@@ -577,12 +628,38 @@ function buildMatchedFields(country, type, ability, tags, rate, route) {
   };
 }
 
-function renderFormat(fields) {
+function buildFormatColumnWidths(records) {
+  const widths = {};
+
+  records.forEach(function collectWidths(record) {
+    const parts = buildFormatParts(record.fields);
+    parts.forEach(function collect(part) {
+      const width = getDisplayWidth(part.text);
+      widths[part.column] = Math.max(widths[part.column] || 0, width);
+    });
+  });
+
+  return widths;
+}
+
+function renderFormat(fields, columnWidths) {
+  const parts = buildFormatParts(fields);
   const rendered = [];
+
+  parts.forEach(function renderPart(part) {
+    const width = columnWidths ? columnWidths[part.column] || 0 : 0;
+    rendered.push(padDisplay(part.text, width));
+  });
+
+  return joinName(rendered).replace(/\s+$/, "");
+}
+
+function buildFormatParts(fields) {
+  const parts = [];
 
   options.formatTokens.forEach(function renderToken(token) {
     if (token.exactField) {
-      addField(rendered, fields[token.exactField]);
+      addFormatValueParts(parts, token.exactField, fields[token.exactField]);
       return;
     }
 
@@ -593,30 +670,46 @@ function renderFormat(fields) {
       return stringifyField(fields[fieldName]);
     });
 
-    if (
+    const hasValue =
       token.fieldNames.length === 0 ||
       token.fieldNames.every(function hasValue(fieldName) {
         return !isEmptyField(fields[fieldName]);
-      })
-    ) {
-      addField(rendered, text);
+      });
+    if (hasValue) {
+      parts.push({
+        column: getFormatColumnKey(token.template, 0),
+        text: text,
+      });
     }
   });
 
-  return joinName(rendered);
+  return parts;
 }
 
-function addField(target, value) {
+function addFormatValueParts(parts, fieldName, value) {
   if (Array.isArray(value)) {
-    value.forEach(function addNested(item) {
-      addField(target, item);
+    value.forEach(function addNested(item, index) {
+      addFormatPart(parts, fieldName, index, item);
     });
     return;
   }
 
-  if (!isEmptyField(value)) {
-    target.push(value);
+  addFormatPart(parts, fieldName, 0, value);
+}
+
+function addFormatPart(parts, fieldName, index, value) {
+  if (isEmptyField(value)) {
+    return;
   }
+
+  parts.push({
+    column: getFormatColumnKey(fieldName, index),
+    text: stringifyField(value),
+  });
+}
+
+function getFormatColumnKey(name, index) {
+  return name + ":" + index;
 }
 
 function stringifyField(value) {
@@ -628,6 +721,19 @@ function stringifyField(value) {
       .join(FIELD_SEPARATOR);
   }
   return isEmptyField(value) ? "" : String(value);
+}
+
+function padDisplay(value, width) {
+  const text = stringifyField(value);
+  const diff = width - getDisplayWidth(text);
+  return diff > 0 ? text + " ".repeat(diff) : text;
+}
+
+function getDisplayWidth(value) {
+  return stringifyField(value)
+    .split(SERIAL_PLACEHOLDER)
+    .join("00")
+    .replace(/[^\x00-\xff]/g, "xx").length;
 }
 
 function isEmptyField(value) {
@@ -727,18 +833,9 @@ function appendSerialNumbers(proxies) {
     }
 
     const serial = group.items.length + 1;
-    const renamedProxy = Object.assign({}, proxy, {
-      name: insertSerialNumber(proxy.name, pad2(serial)),
-    });
-
-    serialBaseNames.set(renamedProxy, removeSerialPlaceholder(proxy.name));
-    if (proxySortKeys.has(proxy)) {
-      proxySortKeys.set(renamedProxy, proxySortKeys.get(proxy));
-    }
-    if (proxySerialKeys.has(proxy)) {
-      proxySerialKeys.set(renamedProxy, proxySerialKeys.get(proxy));
-    }
-    group.items.push(renamedProxy);
+    serialBaseNames.set(proxy, removeSerialPlaceholder(proxy.name));
+    proxy.name = insertSerialNumber(proxy.name, pad2(serial));
+    group.items.push(proxy);
   });
 
   const flattened = leadingPinned.slice();
@@ -869,11 +966,52 @@ function buildSortValues(fields, country, originalName) {
     region: getList("us")[country.index],
     serial: "",
     route: stringifyField(fields.route),
-    rate: stringifyField(fields.rate),
+    rate: getRateSortValue(fields.rate),
     ability: stringifyField(fields.ability),
     tags: stringifyField(fields.tags),
+    extra: getExtraSortValue(fields),
+    detail: getDetailSortValue(fields),
     name: stringify(originalName),
   };
+}
+
+function getExtraSortValue(fields) {
+  return hasExtraFields(fields) ? "1" : "0";
+}
+
+function hasExtraFields(fields) {
+  return (
+    !isEmptyField(fields.rate) ||
+    !isEmptyField(fields.route) ||
+    !isEmptyField(fields.ability) ||
+    !isEmptyField(fields.tags)
+  );
+}
+
+function getDetailSortValue(fields) {
+  const parts = [
+    stringifyField(fields.rate),
+    stringifyField(fields.route),
+    stringifyField(fields.ability),
+    stringifyField(fields.tags),
+  ].filter(function keepPart(part) {
+    return part !== "";
+  });
+  const text = parts.join(FIELD_SEPARATOR);
+  return padSortNumber(parts.length, 3) + ":" + padSortNumber(text.length, 4);
+}
+
+function getRateSortValue(value) {
+  const text = stringifyField(value);
+  const numberMatch = text.match(/(\d[\d.]*)/);
+  const rate = numberMatch ? Number(numberMatch[0]) : 1;
+  return padSortNumber(isFinite(rate) ? rate : 1, 8);
+}
+
+function padSortNumber(value, width) {
+  const scaled = Math.round(Number(value) * 1000);
+  const text = String(scaled);
+  return text.length >= width ? text : "0".repeat(width - text.length) + text;
 }
 
 function getProxySortKey(proxy) {
@@ -885,25 +1023,12 @@ function getProxySerialKey(proxy) {
 }
 
 function joinName(parts) {
-  const normalized = [];
-
-  parts.forEach(function addPart(part) {
-    if (Array.isArray(part)) {
-      part.forEach(addPart);
-      return;
-    }
-
-    if (part === undefined || part === null) {
-      return;
-    }
-
-    const text = String(part);
-    if (text !== "") {
-      normalized.push(text);
-    }
-  });
-
-  return normalized.join(FIELD_SEPARATOR);
+  return parts
+    .filter(function keepPart(part) {
+      return !isEmptyField(part);
+    })
+    .map(stringifyField)
+    .join(FIELD_SEPARATOR);
 }
 
 function regexTest(regex, value) {
