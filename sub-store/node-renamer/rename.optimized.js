@@ -5,6 +5,7 @@
  * - 参数以 # 开头，多个参数用 & 连接，例如：#region=all&rate=sup&route=auto
  * - 命名先解析为 prefix/region/serial/route/rate/tags 字段，再由 format 组装
  * - format 中字段为空会自动跳过，不留下多余分隔符
+ * - sort 控制最终排序字段，默认跟随 format 字段顺序，支持多个字段组合排序
  * - input 控制地区输入识别格式，默认为 auto；region/rate/route/serial/tags 控制各字段显示
  *
  * 维护说明：
@@ -16,6 +17,7 @@
 
 const inArg =
   typeof $arguments === "object" && $arguments !== null ? $arguments : {};
+const parsedFormat = parseFormat(inArg.format);
 
 const options = {
   nx: !!inArg.nx,
@@ -27,7 +29,8 @@ const options = {
   nm: !!inArg.nm,
   fgf: inArg.fgf === undefined ? " " : decodeURI(inArg.fgf),
   prefix: inArg.prefix === undefined ? "" : decodeURI(inArg.prefix),
-  format: parseFormat(inArg.format),
+  format: parsedFormat,
+  sort: parseSortFields(inArg.sort, parsedFormat),
   serial: parseSerialStyle(inArg.serial),
   route: parseRouteStyle(inArg.route),
   rate: parseRateStyle(inArg.rate),
@@ -90,6 +93,63 @@ function parseFormat(value) {
   return format === "" ? defaultFormat : format;
 }
 
+function parseSortFields(value, format) {
+  const source =
+    value === undefined || String(value).trim() === ""
+      ? extractFormatFields(format)
+      : decodeURI(value).split(/[\s,+|>]+/);
+  const fields = [];
+
+  source.forEach(function addSortField(item) {
+    const field = normalizeSortField(item);
+    if (field && fields.indexOf(field) === -1) {
+      fields.push(field);
+    }
+  });
+
+  if (fields.length) {
+    return fields;
+  }
+
+  return value === undefined
+    ? ["prefix", "region", "serial", "route", "rate", "tags"]
+    : parseSortFields(undefined, format);
+}
+
+function extractFormatFields(format) {
+  const fields = [];
+  String(format).replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, function collect(
+    match,
+    fieldName
+  ) {
+    fields.push(fieldName);
+    return match;
+  });
+  return fields;
+}
+
+function normalizeSortField(value) {
+  const field = String(value).replace(/[{}]/g, "").toLowerCase();
+  const aliases = {
+    country: "region",
+    area: "region",
+    region: "region",
+    prefix: "prefix",
+    route: "route",
+    line: "route",
+    desc: "route",
+    description: "route",
+    rate: "rate",
+    multiplier: "rate",
+    tag: "tags",
+    tags: "tags",
+    serial: "serial",
+    number: "serial",
+    name: "name",
+  };
+  return aliases[field] || "";
+}
+
 function parseSerialStyle(value) {
   const style = value === undefined ? "always" : String(value).toLowerCase();
   if (style === "off" || style === "none" || style === "false") {
@@ -126,6 +186,7 @@ const regionStyle = parseRegionStyle(inArg.region);
 const SERIAL_PLACEHOLDER = "\u0000SERIAL\u0000";
 const serialBaseNames = new WeakMap();
 const proxyRanks = new WeakMap();
+const proxySortKeys = new WeakMap();
 const DIRECT_RANK = 0;
 const NORMAL_RANK = 1;
 const UNRESOLVED_RANK = 2;
@@ -236,7 +297,12 @@ function operator(proxies) {
     const matchedCountry = findCountry(workingName);
 
     if (matchedCountry) {
-      proxy.name = buildMatchedName(matchedCountry, tags, rate, route);
+      const fields = buildMatchedFields(matchedCountry, tags, rate, route);
+      proxy.name = renderFormat(fields);
+      proxySortKeys.set(
+        proxy,
+        buildProxySortKey(fields, matchedCountry, originalName)
+      );
       return;
     }
 
@@ -252,6 +318,8 @@ function operator(proxies) {
   result = result.filter(function hasName(proxy) {
     return proxy.name !== null;
   });
+
+  result = sortPinnedProxies(result);
 
   if (options.serial !== "off") {
     appendSerialNumbers(result);
@@ -411,15 +479,15 @@ function findCountry(name) {
 }
 
 // 按 format 组装标准字段，字段为空时跳过，不留下多余分隔符。
-function buildMatchedName(country, tags, rate, route) {
-  return renderFormat({
+function buildMatchedFields(country, tags, rate, route) {
+  return {
     prefix: options.prefix,
     region: buildCountryDisplay(country),
     serial: options.serial === "off" ? "" : SERIAL_PLACEHOLDER,
     route: route,
     rate: rate,
     tags: tags,
-  });
+  };
 }
 
 function renderFormat(fields) {
@@ -574,6 +642,9 @@ function appendSerialNumbers(proxies) {
     });
 
     serialBaseNames.set(renamedProxy, removeSerialPlaceholder(proxy.name));
+    if (proxySortKeys.has(proxy)) {
+      proxySortKeys.set(renamedProxy, proxySortKeys.get(proxy));
+    }
     group.items.push(renamedProxy);
   });
 
@@ -652,7 +723,20 @@ function sortPinnedProxies(proxies) {
     })
     .sort(function sortByRank(a, b) {
       const rankDiff = getProxyRank(a.proxy) - getProxyRank(b.proxy);
-      return rankDiff || a.index - b.index;
+      if (rankDiff) {
+        return rankDiff;
+      }
+
+      if (getProxyRank(a.proxy) === NORMAL_RANK) {
+        const keyDiff = getProxySortKey(a.proxy).localeCompare(
+          getProxySortKey(b.proxy)
+        );
+        if (keyDiff) {
+          return keyDiff;
+        }
+      }
+
+      return a.index - b.index;
     })
     .map(function unwrap(item) {
       return item.proxy;
@@ -661,6 +745,28 @@ function sortPinnedProxies(proxies) {
 
 function getProxyRank(proxy) {
   return proxyRanks.has(proxy) ? proxyRanks.get(proxy) : NORMAL_RANK;
+}
+
+function buildProxySortKey(fields, country, originalName) {
+  const sortValues = {
+    prefix: stringifyField(fields.prefix),
+    region: getList("us")[country.index],
+    serial: "",
+    route: stringifyField(fields.route),
+    rate: stringifyField(fields.rate),
+    tags: stringifyField(fields.tags),
+    name: stringify(originalName),
+  };
+  const keys = options.sort.map(function getValue(field) {
+    return sortValues[field] || "";
+  });
+
+  keys.push(stringify(originalName));
+  return keys.join("\u0000");
+}
+
+function getProxySortKey(proxy) {
+  return proxySortKeys.has(proxy) ? proxySortKeys.get(proxy) : stringify(proxy.name);
 }
 
 function sortSpecialGroups(proxies) {
