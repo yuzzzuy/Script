@@ -5,7 +5,7 @@
 默认输出格式：
 
 ```text
-{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}]
+{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}][{tags}]
 ```
 
 默认排序和编号依据：
@@ -15,7 +15,7 @@ sort=prefix,region,extra,rate,type,detail,route,ability,tags,name
 serialBy=prefix,region
 ```
 
-字段为空时会自动跳过。例如没有 `type` 或标签信息时，`[{type}][{rate}][{route}][{ability}]` 会整块跳过，不会留下空中括号或多余空格。
+字段为空时会自动跳过。例如没有 `type`、倍率、线路、能力或属性标签时，`[{type}][{rate}][{route}][{ability}][{tags}]` 会按实际内容自动收缩，不会留下空中括号或多余空格。
 
 ## 配置区
 
@@ -29,6 +29,7 @@ serialBy=prefix,region
 | `CONFIG.defaults.sort` | 默认排序字段 |
 | `CONFIG.defaults.serialBy` | 默认编号分组 |
 | `CONFIG.magneticFields` | 连续相邻时会磁吸成中括号标签的字段 |
+| `CONFIG.typeRules` | 协议类型兜底字典，例如从节点名识别 `vless` |
 | `CONFIG.abilityRules` | 能力标签字典，例如 `GPT`、`AI` |
 | `CONFIG.tagRules` | 内置标签字典，例如 `奈飞`、`固定IP` |
 | `CONFIG.routeRules` | 线路描述字典，例如 `IPLC`、`家宽`、`游戏` |
@@ -36,6 +37,8 @@ serialBy=prefix,region
 | `CONFIG.infoKeywords` | 套餐、流量、公告等信息节点过滤关键词 |
 
 当前内置关键词覆盖了常见 AI 服务、流媒体/应用解锁、线路承载网络、网络质量描述、常见城市别名和订阅信息节点。后续新增普通关键词时，优先追加到对应的 `CONFIG.*Rules` 或 `CONFIG.infoKeywords`。
+
+原始节点名中形如 `[备用]`、`[手动]`、`[后缀A]` 的中括号后缀会被抽取到 `tags` 字段，参与磁吸渲染；脚本会先把这些后缀从主体名字里剥离，再进行国家、类型、倍率和信息节点过滤，避免 `[备用]` 这类后缀把正常节点误判成信息节点。
 
 普通关键词可以用 `match`，复杂边界再用 `regex`：
 
@@ -47,6 +50,8 @@ serialBy=prefix,region
 { regex: /\bdedicated\b(?![\s-]*ipv6)/i, value: "独立服务器" }
 ```
 
+匹配机制默认偏保守：英文/数字关键词会按独立 token 边界匹配，中文关键词按完整词条匹配；同一字段里如果同时命中长短包含关系的标签，会优先保留更具体的长标签，例如 `CMIN2` 不会再额外输出 `CMI`，`三网优化` 不会再额外输出 `三网`。
+
 ## 标准字段
 
 | Field | 含义 | 来源 | 示例 |
@@ -56,7 +61,7 @@ serialBy=prefix,region
 | `serial` | 编号 | 参数 `serial` / `serialBy` | `01` |
 | `route` | 线路描述，支持多个 | 节点名识别 + 参数 `route` | `IPLC 游戏 专线` |
 | `rate` | 倍率 | 节点名识别 + 参数 `rate` | `2×` |
-| `type` | 协议类型，保留节点对象原值 | 节点对象 `type` / `protocol` / `proxy-type` | `vless` / `hysteria2` |
+| `type` | 协议类型，保留节点对象原值；对象字段为空时从节点名兜底识别 | 节点对象 `type` / `protocol` / `proxy-type` / 节点名 | `vless` / `hysteria2` |
 | `ability` | 能力信息 | 内置识别 | `原生 GPT` |
 | `tags` | 自定义保留标签 | 参数 `tags` | `流媒` |
 
@@ -151,7 +156,7 @@ prefix,type,region,extra,route,rate,ability,tags,name
 | `en` | 英文缩写，例如 `Fam`、`Game`、`Zx` |
 | `off` | 不显示线路描述 |
 
-`IPLC`、`IEPL`、`BGP`、`CN2`、`CMI`、`CUG`、`9929`、`LB`、`CF`、`UDP`、`UDPN` 这类常见缩写在中文模式下也保留缩写。
+`IPLC`、`IEPL`、`MPLS`、`BGP`、`CTGNet`、`CN2`、`GIA`、`GT`、`163`、`CMIN2`、`CMI`、`CUG`、`CUVIP`、`4837`、`4134`、`9929`、`DIA`、`LB`、`CF`、`UDP`、`UDPN` 这类常见缩写在中文模式下也保留缩写。
 线路字典也会识别 `中转`、`隧道`、`直连`、`Anycast`、`专用` 等常见描述。
 如果节点名同时包含多个线路描述，会按命中顺序全部输出并自动去重，例如 `IPLC游戏专线` 会输出 `IPLC 游戏 专线`。
 
@@ -184,11 +189,31 @@ prefix,type,region,extra,route,rate,ability,tags,name
 | `Dedicated` / `Baremetal server` | `独立服务器` |
 | `D1` / `D2` / `No rate limiting` | `不限速` |
 | `Disney` / `YouTube` / `TikTok` / `Spotify` | 对应服务标签 |
+| `Hulu` / `Apple TV` / `Peacock` / `Paramount` | 对应服务标签 |
+| `Crunchyroll` / `U-NEXT` / `Viu` / `TVB` | 对应服务标签 |
+| `Bilibili` / `爱奇艺` / `Twitch` | 对应服务标签 |
 | `Telegram` / `Steam` / `HBO` / `Prime Video` | 对应服务标签 |
 | `DAZN` / `Bahamut` / `Abema` / `动画疯` | 对应服务标签 |
 | `Streaming` / `Unlock` / `流媒体` | `流媒` |
 | `Premium` / `VIP` | `高级` |
+| `Reality` / `XTLS` / `TLS` / `WS` / `gRPC` | 对应传输/安全标签 |
+| `H2` / `QUIC` / `BBR` | 对应传输/加速标签 |
+| `晚高峰` / `Peak time` | `晚峰` |
 | `Low latency` / `稳定` | `低延迟` / `稳定` |
+| `住宅` / `Residential` | `住宅` |
+| `商宽IP` / `Business broadband` | `商宽` |
+| `入口` / `出口` / `落地` | `入口` / `出口` |
+| `绿云` / `GreenCloud` | `绿云` |
+| `软银` / `SoftBank` | `软银` |
+| `三网` / `三网优化` / `双网` | 对应网络覆盖标签 |
+| `CDN优选` / `CDN preferred` / `CDN optimized` | `CDN优选` |
+| `电信` / `联通` / `移动` | 对应运营商标签 |
+| `HKT` / `PCCW` / `HKBN` / `HGC` / `WTT` / `CTM` | 对应港澳运营商标签 |
+| `HiNet` / `Seednet` / `TFN` / `APTG` | 对应台湾运营商标签 |
+| `KDDI` / `NTT` / `IIJ` / `KT` / `SK` / `LG U+` | 对应日韩运营商标签 |
+| `AWS` / `Azure` / `GCP` / `OCI` / `阿里云` / `腾讯云` | 对应云厂商标签 |
+| `LeaseWeb` / `SoftLayer` / `DMIT` / `LayerStack` / `SunnyVision` | 对应 IDC 标签 |
+| `Vultr` / `Linode` / `DigitalOcean` / `OVH` / `Hetzner` | 对应 IDC 标签 |
 
 参数 `tags` 用来追加你自己的关键词规则。
 
@@ -211,18 +236,18 @@ prefix,type,region,extra,route,rate,ability,tags,name
 默认值：
 
 ```text
-{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}]
+{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}][{tags}]
 ```
 
 示例：
 
 ```text
-#format={prefix}%20{region}%20{serial}%20[{type}][{rate}][{route}][{ability}]
+#format={prefix}%20{region}%20{serial}%20[{type}][{rate}][{route}][{ability}][{tags}]
 ```
 
-默认结构是：前缀、国家/地区、编号、类型/倍率/线路/能力标签组。`type`、`rate`、`route`、`ability`、`tags` 在同一个 `format` 片段里连续相邻时，会触发“磁吸”渲染，统一输出为连续中括号，例如 `[vless][2×][IPLC][原生]`。
+默认结构是：前缀、国家/地区、编号、类型/倍率/线路/能力/属性标签组。`type`、`rate`、`route`、`ability`、`tags` 在同一个 `format` 片段里连续相邻时，会触发“磁吸”渲染，统一输出为连续中括号，例如 `[vless][2×][IPLC][原生][HKT]`。
 
-自定义 `format` 仍然是最高优先级，使用原始字段即可，例如 `{type}`、`{rate}`、`{route}`、`{ability}`、`{tags}`。只有这些字段连续挨着时才会磁吸；如果中间有空格、文字或其他分隔符，就完全按你写的格式输出。默认格式不输出 `{tags}`，需要保留自定义标签时，可以在 `format` 里自行加入 `{tags}`。
+自定义 `format` 仍然是最高优先级，使用原始字段即可，例如 `{type}`、`{rate}`、`{route}`、`{ability}`、`{tags}`。只有这些字段连续挨着时才会磁吸；如果中间有空格、文字或其他分隔符，就完全按你写的格式输出。
 
 ```text
 # 磁吸：输出 [vless][2×][IPLC][原生][奈飞]
@@ -234,7 +259,7 @@ prefix,type,region,extra,route,rate,ability,tags,name
 
 脚本会在最终列表生成后，按每个 `format` 片段所在列的最长显示宽度补齐；中文按双宽字符计算。空字段会跳过，不会为了空倍率列把后面的线路描述推远。
 
-协议类型会保留节点对象里的原始值，不做缩写；例如 `trojan` 仍显示为 `trojan`，`vless` 仍显示为 `vless`。最终宽度按完整输出列表计算，长类型会参与对齐。
+协议类型会保留节点对象里的原始值，不做缩写；例如 `trojan` 仍显示为 `trojan`，`vless` 仍显示为 `vless`。如果节点对象没有协议字段，会从节点名里兜底识别 `vless`、`trojan`、`vmess`、`shadowsocks`、`ss`、`ssr`、`hysteria2`、`hysteria`、`tuic`、`wireguard`、`shadowtls`、`anytls`、`naive`、`socks`、`http` 等常见类型。能力字段会识别 `GPT`、`Claude`、`Gemini`、`Grok`、`Poe`、`Sora`、`Copilot`、`Perplexity`、`Midjourney` 等访问能力。最终宽度按完整输出列表计算，长类型会参与对齐。
 
 ### `sort`
 
@@ -331,13 +356,19 @@ VIP 🇺🇸 美国（US） 01 [vless][固定IP][速度优先][可用性优先]
 - 同地区内会先放基础节点，再按倍率从低到高排序，同倍率内再按 `type` 聚合。
 - 韩国节点同属 `prefix + region`，所以编号按最终排序结果连续递增。
 - `route=zh` 输出 `家宽`、`游戏` 这类中文线路描述。
-- 默认 `format` 让 `type`、`rate`、`route`、`ability` 连续相邻，所以会显示为 `[vless][2×][IPLC][原生]` 这种连续标签。
-- `type` 保留节点对象原值；没有 `type` 时对应标签会自动跳过。
+- 默认 `format` 让 `type`、`rate`、`route`、`ability`、`tags` 连续相邻，所以会显示为 `[vless][2×][IPLC][原生][奈飞]` 这种连续标签。
+- `type` 优先保留节点对象原值；没有 `type` 字段时会尝试从节点名兜底识别，仍识别不出时对应标签会自动跳过。
 - `原生`、`GPT`、`AI` 自动进入 `ability`。
 - `Fixed`、`Netflix`、`D1` 等内置字典会进入 `tags`；`流媒体`、`晚高峰` 根据参数 `tags` 映射为 `流媒`、`晚峰`。
 - `Fast-B1-1` 无法识别国家/地区，但 `Fast` 能命中内置 tags 字典，所以输出 `特殊 Fast-B1-1 [速度优先]` 并排最后。
 
 ## Development
+
+完整回归测试：
+
+```bash
+node sub-store/node-renamer/test/run.js
+```
 
 语法检查：
 

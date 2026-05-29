@@ -23,7 +23,7 @@ const FIELD_SEPARATOR = " ";
 const CONFIG = {
   defaults: {
     format:
-      "{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}]",
+      "{prefix} {region} {serial} [{type}][{rate}][{route}][{ability}][{tags}]",
     route: "zh",
     rate: "plain",
     special: "特殊",
@@ -42,6 +42,23 @@ const CONFIG = {
     serialBy: ["prefix", "region"],
   },
   magneticFields: ["type", "rate", "route", "ability", "tags"],
+  typeRules: [
+    { regex: /\bvless\b|vless:\/\//i, value: "vless" },
+    { regex: /\btrojan\b|trojan:\/\//i, value: "trojan" },
+    { regex: /\bvmess\b|vmess:\/\//i, value: "vmess" },
+    { regex: /\bshadowsocks\b|shadowsocks:\/\//i, value: "shadowsocks" },
+    { regex: /\bssr\b|ssr:\/\//i, value: "ssr" },
+    { regex: /\bss\b|ss:\/\//i, value: "ss" },
+    { regex: /\bhysteria2\b|hy2:\/\//i, value: "hysteria2" },
+    { regex: /\bhysteria\b|hy:\/\//i, value: "hysteria" },
+    { regex: /\btuic\b|tuic:\/\//i, value: "tuic" },
+    { regex: /\bwireguard\b|\bwg\b/i, value: "wireguard" },
+    { regex: /\bshadowtls\b|shadowtls:\/\//i, value: "shadowtls" },
+    { regex: /\banytls\b|anytls:\/\//i, value: "anytls" },
+    { regex: /\bnaive\b|naiveproxy|naive:\/\//i, value: "naive" },
+    { regex: /\bsocks5?\b|socks5?:\/\//i, value: "socks" },
+    { regex: /\bhttps?\b|https?:\/\//i, value: "http" },
+  ],
   matchInputAliases: {
     cn: "cn",
     zh: "cn",
@@ -79,13 +96,17 @@ const CONFIG = {
     "flag-name",
   ],
   abilityRules: [
-    { regex: /原生|native/i, value: "原生" },
+    { regex: /原生|\bnative\b/i, value: "原生" },
     { regex: /\bgpt\b|chatgpt|openai/i, value: "GPT" },
     { regex: /\bai\b|人工智能/i, value: "AI" },
-    { regex: /claude|anthropic/i, value: "Claude" },
-    { regex: /gemini|bard/i, value: "Gemini" },
-    { regex: /copilot/i, value: "Copilot" },
-    { regex: /perplexity/i, value: "Perplexity" },
+    { regex: /\bclaude\b|\banthropic\b/i, value: "Claude" },
+    { regex: /\bgemini\b|\bbard\b/i, value: "Gemini" },
+    { regex: /\bgrok\b|\bxai\b/i, value: "Grok" },
+    { regex: /\bpoe\b/i, value: "Poe" },
+    { regex: /\bsora\b/i, value: "Sora" },
+    { regex: /\bcopilot\b/i, value: "Copilot" },
+    { regex: /\bperplexity\b/i, value: "Perplexity" },
+    { regex: /\bmidjourney\b/i, value: "Midjourney" },
   ],
   tagRules: [
     {
@@ -106,26 +127,93 @@ const CONFIG = {
       value: "独立服务器",
     },
     { regex: /\bd[12]\b|no[\s-]*rate[\s-]*limiting/i, value: "不限速" },
-    { regex: /disney\+?|disney[\s-]*plus/i, value: "迪士尼" },
-    { regex: /youtube|\byt\b/i, value: "YouTube" },
-    { regex: /tiktok/i, value: "TikTok" },
-    { regex: /spotify/i, value: "Spotify" },
-    { regex: /telegram/i, value: "Telegram" },
-    { regex: /steam/i, value: "Steam" },
+    { regex: /\bdisney(?:\+|[\s-]*plus)?\b/i, value: "迪士尼" },
+    { regex: /\byoutube\b|\byt\b/i, value: "YouTube" },
+    { regex: /\btiktok\b/i, value: "TikTok" },
+    { regex: /\bspotify\b/i, value: "Spotify" },
+    { regex: /\bhulu\b/i, value: "Hulu" },
+    { regex: /\bapple[\s-]*tv\+?\b|\bappletv\b/i, value: "Apple TV" },
+    { regex: /\bpeacock\b/i, value: "Peacock" },
+    { regex: /\bparamount(?:\+|[\s-]*plus)?\b/i, value: "Paramount" },
+    { regex: /\bcrunchyroll\b/i, value: "Crunchyroll" },
+    { regex: /\bu[\s-]*next\b/i, value: "U-NEXT" },
+    { regex: /\bviu\b/i, value: "Viu" },
+    { regex: /\btvb\b|mytv[\s-]*super/i, value: "TVB" },
+    { regex: /\bbilibili\b|哔哩|嗶哩|b站/i, value: "Bilibili" },
+    { regex: /\biqiyi\b|爱奇艺|愛奇藝/i, value: "爱奇艺" },
+    { regex: /\btelegram\b/i, value: "Telegram" },
+    { regex: /\bsteam\b/i, value: "Steam" },
+    { regex: /\btwitch\b/i, value: "Twitch" },
     { regex: /\bhbo\b|hbo[\s-]*max/i, value: "HBO" },
-    { regex: /prime[\s-]*video|amazon[\s-]*prime/i, value: "Prime" },
-    { regex: /dazn/i, value: "DAZN" },
+    { regex: /\bprime[\s-]*video\b|\bamazon[\s-]*prime\b/i, value: "Prime" },
+    { regex: /\bdazn\b/i, value: "DAZN" },
     { regex: /bahamut|baha|巴哈姆特|巴哈/i, value: "巴哈" },
-    { regex: /abema/i, value: "Abema" },
+    { regex: /\babema\b/i, value: "Abema" },
     { regex: /动画疯/i, value: "动画疯" },
-    { regex: /streaming|media[\s-]*unlock|unlock|解锁|流媒体/i, value: "流媒" },
-    { regex: /premium|vip/i, value: "高级" },
+    { regex: /\bstreaming\b|\bmedia[\s-]*unlock\b|\bunlock\b|解锁|流媒体/i, value: "流媒" },
+    { regex: /\bpremium\b|\bvip\b/i, value: "高级" },
+    { regex: /\breality\b/i, value: "Reality" },
+    { regex: /\bxtls\b/i, value: "XTLS" },
+    { regex: /\btls\b/i, value: "TLS" },
+    { regex: /\bwebsocket\b|\bws\b/i, value: "WS" },
+    { regex: /\bgrpc\b/i, value: "gRPC" },
+    { regex: /\bh2\b|http[\s/.-]*2/i, value: "H2" },
+    { regex: /\bhttp3\b|\bh3\b|\bquic\b/i, value: "QUIC" },
+    { regex: /\bbbr\b|\bbbr[\s-]*plus\b/i, value: "BBR" },
+    { regex: /晚高峰|晚峰|peak[\s-]*time/i, value: "晚峰" },
     { regex: /low[\s-]*latency|低延迟/i, value: "低延迟" },
-    { regex: /stable|stability|稳定/i, value: "稳定" },
+    { regex: /\bstable\b|\bstability\b|稳定/i, value: "稳定" },
+    { regex: /住宅|家宽IP|\bresidential\b/i, value: "住宅" },
+    { regex: /商宽IP|\bbusiness[\s-]*broadband\b/i, value: "商宽" },
+    { regex: /落地|出口|\bexit\b/i, value: "出口" },
+    { regex: /入口|\bentry\b|\bingress\b/i, value: "入口" },
+    { regex: /绿云|\bgreencloud\b/i, value: "绿云" },
+    { regex: /软银|\bsoftbank\b/i, value: "软银" },
+    { regex: /CDN[\s-]*优选|cdn[\s-]*preferred|cdn[\s-]*optimized/i, value: "CDN优选" },
+    { regex: /中国电信|(^|[^中华])电信(?!讯)|\bchina[\s-]*telecom\b|\bctgnet\b/i, value: "电信" },
+    { regex: /中国联通|联通|\bchina[\s-]*unicom\b|\bcucn\b/i, value: "联通" },
+    { regex: /中国移动|移动(?!端)|\bchina[\s-]*mobile\b|\bcmcc\b/i, value: "移动" },
+    { regex: /三网优化|三网精品|三网回程/i, value: "三网优化" },
+    { regex: /三网(?!优化|精品|回程)|三網/i, value: "三网" },
+    { regex: /双网|双線|双线|dual[\s-]*isp/i, value: "双网" },
+    { regex: /\bhkt\b/i, value: "HKT" },
+    { regex: /\bpccw\b/i, value: "PCCW" },
+    { regex: /\bhkbn\b/i, value: "HKBN" },
+    { regex: /\bhgc\b/i, value: "HGC" },
+    { regex: /\bwtt\b/i, value: "WTT" },
+    { regex: /\bctm\b|澳门电讯|澳門電訊/i, value: "CTM" },
+    { regex: /\bhinet\b|中华电信|中華電信/i, value: "HiNet" },
+    { regex: /\bseednet\b/i, value: "Seednet" },
+    { regex: /\btfn\b|台湾固网|台灣固網/i, value: "TFN" },
+    { regex: /\baptg\b|亚太电信|亞太電信/i, value: "APTG" },
+    { regex: /\bkddi\b/i, value: "KDDI" },
+    { regex: /\bntt\b/i, value: "NTT" },
+    { regex: /\biij\b/i, value: "IIJ" },
+    { regex: /\bkt\b|korea[\s-]*telecom/i, value: "KT" },
+    { regex: /\bsk\b|sk[\s-]*telecom/i, value: "SK" },
+    { regex: /\blg[\s-]*u\+?\b/i, value: "LG U+" },
+    { regex: /\baws\b|amazon[\s-]*(web[\s-]*services|ec2)/i, value: "AWS" },
+    { regex: /\bazure\b|microsoft[\s-]*azure/i, value: "Azure" },
+    { regex: /\bgcp\b|google[\s-]*cloud/i, value: "GCP" },
+    { regex: /\boci\b|oracle[\s-]*cloud/i, value: "OCI" },
+    { regex: /阿里云|\baliyun\b|\balibaba[\s-]*cloud\b|\bali[\s-]*cloud\b/i, value: "阿里云" },
+    { regex: /腾讯云|\btencent[\s-]*cloud\b/i, value: "腾讯云" },
+    { regex: /\bleaseweb\b/i, value: "LeaseWeb" },
+    { regex: /\bsoftlayer\b|\bibm[\s-]*cloud\b/i, value: "SoftLayer" },
+    { regex: /\bdmit\b/i, value: "DMIT" },
+    { regex: /\blayerstack\b/i, value: "LayerStack" },
+    { regex: /\bsunny[\s-]*vision\b|\bsunnyvision\b/i, value: "SunnyVision" },
+    { regex: /\bvultr\b/i, value: "Vultr" },
+    { regex: /\blinode\b/i, value: "Linode" },
+    { regex: /\bdigital[\s-]*ocean\b/i, value: "DigitalOcean" },
+    { regex: /\bovh\b/i, value: "OVH" },
+    { regex: /\bhetzner\b/i, value: "Hetzner" },
   ],
   routeRules: [
-    { regex: /IPLC/i, zh: "IPLC", en: "IPLC" },
-    { regex: /IEPL/i, zh: "IEPL", en: "IEPL" },
+    { regex: /\bIPLC\b/i, zh: "IPLC", en: "IPLC" },
+    { regex: /\bIEPL\b/i, zh: "IEPL", en: "IEPL" },
+    { regex: /\bMPLS\b/i, zh: "MPLS", en: "MPLS" },
+    { regex: /精品网|精品线路|\bpremium[\s-]*route\b/i, zh: "精品", en: "Premium" },
     { regex: /核心/, zh: "核心", en: "Kern" },
     { regex: /边缘/, zh: "边缘", en: "Edge" },
     { regex: /高级/, zh: "高级", en: "Pro" },
@@ -133,21 +221,30 @@ const CONFIG = {
     { regex: /实验/, zh: "实验", en: "Exp" },
     { regex: /商宽/, zh: "商宽", en: "Biz" },
     { regex: /家宽/, zh: "家宽", en: "Fam" },
-    { regex: /游戏|game/i, zh: "游戏", en: "Game" },
+    { regex: /游戏|\bgame\b/i, zh: "游戏", en: "Game" },
     { regex: /购物/, zh: "购物", en: "Buy" },
     { regex: /专线/, zh: "专线", en: "Zx" },
-    { regex: /中转|relay|transfer/i, zh: "中转", en: "Relay" },
-    { regex: /隧道|tunnel/i, zh: "隧道", en: "Tunnel" },
-    { regex: /直连|direct/i, zh: "直连", en: "Direct" },
-    { regex: /BGP/i, zh: "BGP", en: "BGP" },
-    { regex: /CN2/i, zh: "CN2", en: "CN2" },
-    { regex: /CMI/i, zh: "CMI", en: "CMI" },
-    { regex: /CUG/i, zh: "CUG", en: "CUG" },
-    { regex: /AS9929|9929/, zh: "9929", en: "9929" },
-    { regex: /anycast/i, zh: "Anycast", en: "Anycast" },
+    { regex: /中转|\brelay\b|\btransfer\b/i, zh: "中转", en: "Relay" },
+    { regex: /隧道|\btunnel\b/i, zh: "隧道", en: "Tunnel" },
+    { regex: /直连|\bdirect\b/i, zh: "直连", en: "Direct" },
+    { regex: /\bBGP\b/i, zh: "BGP", en: "BGP" },
+    { regex: /\bCTGNet\b/i, zh: "CTGNet", en: "CTGNet" },
+    { regex: /\bCN2\b/i, zh: "CN2", en: "CN2" },
+    { regex: /\bGIA\b/i, zh: "GIA", en: "GIA" },
+    { regex: /\bGT\b/i, zh: "GT", en: "GT" },
+    { regex: /\b163\b/, zh: "163", en: "163" },
+    { regex: /\bCMIN2\b/i, zh: "CMIN2", en: "CMIN2" },
+    { regex: /\bCMI\b/i, zh: "CMI", en: "CMI" },
+    { regex: /\bCUG\b/i, zh: "CUG", en: "CUG" },
+    { regex: /\bCUII\b|\bCUVIP\b|\bCU[\s-]*VIP\b/i, zh: "CUVIP", en: "CUVIP" },
+    { regex: /AS4837|\b4837\b/, zh: "4837", en: "4837" },
+    { regex: /AS4134|\b4134\b/, zh: "4134", en: "4134" },
+    { regex: /AS9929|\b9929\b/, zh: "9929", en: "9929" },
+    { regex: /\bDIA\b|dedicated[\s-]*internet[\s-]*access/i, zh: "DIA", en: "DIA" },
+    { regex: /\banycast\b/i, zh: "Anycast", en: "Anycast" },
     { regex: /专用|\bdedicated\b(?![\s-]*ipv6)/i, zh: "专用", en: "Dedicated" },
-    { regex: /LB/, zh: "LB", en: "LB" },
-    { regex: /cloudflare/i, zh: "CF", en: "CF" },
+    { regex: /\bLB\b/, zh: "LB", en: "LB" },
+    { regex: /\bcloudflare\b/i, zh: "CF", en: "CF" },
     { regex: /\budp\b/i, zh: "UDP", en: "UDP" },
     { regex: /udpn\b/i, zh: "UDPN", en: "UDPN" },
   ],
@@ -197,7 +294,6 @@ const CONFIG = {
     { name: "United States", regex: /New York|Seattle|Dallas|Miami|Ashburn|Phoenix|Denver/g },
     { name: "Canada", regex: /Toronto|Vancouver|Montreal/g },
     { name: "Singapore", regex: /Singapore|狮城/g },
-    { name: "Hong Kong", regex: /HKBN|HKT|HGC|PCCW/g },
     { name: "Japan", regex: /Narita|Saitama|Yokohama|名古屋|大阪/g },
     { name: "Korea", regex: /Busan|Incheon|首尔|釜山/g },
     { name: "United Kingdom", regex: /Manchester|英国/g },
@@ -510,6 +606,7 @@ const ZH = ['香港','澳门','台湾','日本','韩国','新加坡','美国','�
 // prettier-ignore
 const QC = ['Hong Kong','Macao','Taiwan','Japan','Korea','Singapore','United States','United Kingdom','France','Germany','Australia','Dubai','Afghanistan','Albania','Algeria','Angola','Argentina','Armenia','Austria','Azerbaijan','Bahrain','Bangladesh','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','British Virgin Islands','Brunei','Bulgaria','Burkina-faso','Burundi','Cambodia','Cameroon','Canada','CapeVerde','CaymanIslands','Central African Republic','Chad','Chile','Colombia','Comoros','Congo-Brazzaville','Congo-Kinshasa','CostaRica','Croatia','Cyprus','Czech Republic','Denmark','Djibouti','Dominican Republic','Ecuador','Egypt','EISalvador','Equatorial Guinea','Eritrea','Estonia','Ethiopia','Fiji','Finland','Gabon','Gambia','Georgia','Ghana','Greece','Greenland','Guatemala','Guinea','Guyana','Haiti','Honduras','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Isle of Man','Israel','Italy','Ivory Coast','Jamaica','Jordan','Kazakstan','Kenya','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Lithuania','Luxembourg','Macedonia','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Mauritania','Mauritius','Mexico','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar(Burma)','Namibia','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','NorthKorea','Norway','Oman','Pakistan','Panama','Paraguay','Peru','Philippines','Portugal','PuertoRico','Qatar','Romania','Russia','Rwanda','SanMarino','SaudiArabia','Senegal','Serbia','SierraLeone','Slovakia','Slovenia','Somalia','SouthAfrica','Spain','SriLanka','Sudan','Suriname','Swaziland','Sweden','Switzerland','Syria','Tajikstan','Tanzania','Thailand','Togo','Tonga','TrinidadandTobago','Tunisia','Turkey','Turkmenistan','U.S.Virgin Islands','Uganda','Ukraine','Uruguay','Uzbekistan','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe','Andorra','Reunion','Poland','Guam','Vatican','Liechtensteins','Curacao','Seychelles','Antarctica','Gibraltar','Cuba','Faroe Islands','Ahvenanmaa','Bermuda','Timor-Leste'];
 
+const typeRules = CONFIG.typeRules.map(normalizeRule);
 const abilityRules = CONFIG.abilityRules.map(normalizeRule);
 const builtinTagRules = CONFIG.tagRules.map(normalizeRule);
 const infoNodeRegex = buildKeywordRegex(CONFIG.infoKeywords);
@@ -531,28 +628,36 @@ function operator(proxies) {
 
   result.forEach(function renameProxy(proxy) {
     const originalName = stringify(proxy.name);
-    if (originalName.trim() === "") {
+    const bracketTags = collectBracketSuffixes(originalName);
+    const baseName = stripBracketSuffixes(originalName);
+    const parseName = baseName.trim() === "" ? originalName : baseName;
+
+    if (parseName.trim() === "") {
       proxy.name = null;
       return;
     }
 
-    if (isInfoNode(originalName)) {
+    if (isInfoNode(parseName)) {
       proxy.name = null;
       return;
     }
 
-    if (isDirectName(originalName)) {
+    if (isDirectName(parseName)) {
       proxy.name = null;
       return;
     }
 
-    let workingName = normalizeAliases(originalName);
-    const type = getProxyType(proxy);
-    const ability = collectAbility(originalName + " " + workingName);
-    const tags = collectTags(originalName + " " + workingName, tagRules);
+    let workingName = normalizeAliases(parseName);
+    const searchName = parseName + " " + workingName;
+    const type = getProxyType(proxy, searchName);
+    const ability = collectAbility(searchName);
+    const tags = collectTags(searchName, tagRules);
+    bracketTags.forEach(function appendBracketTag(tag) {
+      pushUnique(tags, tag);
+    });
     const route = options.routeEnabled ? findRoute(workingName) : "";
     const rate = options.rate === "off" ? "" : findRate(workingName);
-    const matchedCountry = findCountry(workingName);
+    const matchedCountry = findCountry(workingName, route, tags);
 
     if (matchedCountry) {
       const fields = buildMatchedFields(
@@ -576,7 +681,7 @@ function operator(proxies) {
       return;
     }
 
-    proxy.name = buildSpecialName(originalName, rate, route, ability, tags);
+    proxy.name = buildSpecialName(parseName, rate, route, ability, tags);
     proxyRanks.set(proxy, UNRESOLVED_RANK);
   });
 
@@ -657,15 +762,51 @@ function buildCountryEntries() {
   const inputLists = inputName ? [getList(inputName)] : [ZH, FG, QC, EN];
 
   inputLists.forEach(function addList(list) {
+    const inputType = getCountryInputType(list);
     list.forEach(function addEntry(value, index) {
       entries.push({
         input: value,
+        inputType: inputType,
+        regex: buildCountryInputRegex(value, inputType),
         index: index,
       });
     });
   });
 
   return entries;
+}
+
+function getCountryInputType(list) {
+  if (list === EN) {
+    return "code";
+  }
+  if (list === QC) {
+    return "full";
+  }
+  if (list === FG) {
+    return "flag";
+  }
+  return "name";
+}
+
+function buildCountryInputRegex(value, inputType) {
+  const text = stringify(value);
+  if (!text) {
+    return /a^/;
+  }
+
+  if (inputType === "code") {
+    return new RegExp(
+      "(^|[^A-Za-z0-9])" + escapeRegex(text) + "(?=$|[^A-Za-z0-9])",
+      "i"
+    );
+  }
+
+  if (inputType === "full") {
+    return new RegExp(keywordToRegexSource(text), "i");
+  }
+
+  return new RegExp(escapeRegex(text), inputType === "flag" ? "" : "i");
 }
 
 function buildAliasEntries() {
@@ -687,6 +828,23 @@ function buildRouteEntries() {
   });
 }
 
+function collectBracketSuffixes(name) {
+  const values = [];
+  const regex = /\[([^\[\]]+)\]/g;
+  let match = regex.exec(name);
+
+  while (match) {
+    pushUnique(values, match[1].trim());
+    match = regex.exec(name);
+  }
+
+  return values;
+}
+
+function stripBracketSuffixes(name) {
+  return name.replace(/\s*\[[^\[\]]+\]\s*/g, " ").replace(/\s+/g, " ").trim();
+}
+
 // 把常见别名和城市名归一化，提升后续国家/地区识别命中率。
 function normalizeAliases(name) {
   let normalized = name;
@@ -698,8 +856,21 @@ function normalizeAliases(name) {
   return normalized;
 }
 
-function getProxyType(proxy) {
-  return stringify(proxy.type || proxy.protocol || proxy["proxy-type"]).trim();
+function getProxyType(proxy, name) {
+  const explicitType = stringify(
+    proxy.type || proxy.protocol || proxy["proxy-type"]
+  ).trim();
+  if (explicitType !== "") {
+    return explicitType;
+  }
+
+  for (let index = 0; index < typeRules.length; index++) {
+    if (ruleMatches(typeRules[index], name)) {
+      return typeRules[index].value;
+    }
+  }
+
+  return "";
 }
 
 // ability 只收集内置能力标签，例如原生、GPT、AI。
@@ -710,7 +881,7 @@ function collectAbility(name) {
       pushUnique(retained, item.value);
     }
   });
-  return retained;
+  return pruneContainedValues(retained);
 }
 
 // tags 合并内置标签和自定义 source>display 规则。
@@ -723,13 +894,13 @@ function collectTags(name, tagRules) {
   });
 
   tagRules.forEach(function collect(item) {
-    if (!item.source || name.indexOf(item.source) === -1) {
+    if (!item.source || !regexTest(item.regex, name)) {
       return;
     }
     const value = item.replacement || item.source;
     pushUnique(retained, value);
   });
-  return retained;
+  return pruneContainedValues(retained);
 }
 
 function parseTagRules(value) {
@@ -741,9 +912,11 @@ function parseTagRules(value) {
     .split("+")
     .map(function parseItem(item) {
       const parts = item.split(">");
+      const source = parts[0].trim();
       return {
-        source: parts[0],
-        replacement: parts.slice(1).join(">"),
+        source: source,
+        regex: buildLiteralRuleRegex(source),
+        replacement: parts.slice(1).join(">").trim(),
       };
     })
     .filter(function hasSource(item) {
@@ -760,7 +933,7 @@ function findRoute(name) {
       pushUnique(routes, value);
     }
   }
-  return routes;
+  return pruneContainedValues(routes);
 }
 
 function getRouteValue(entry) {
@@ -787,13 +960,28 @@ function findRate(name) {
 }
 
 // 国家/地区识别依赖 countryEntries 的顺序，不能改成无序查找。
-function findCountry(name) {
+function findCountry(name, route, tags) {
   for (let index = 0; index < countryEntries.length; index++) {
-    if (name.indexOf(countryEntries[index].input) !== -1) {
-      return countryEntries[index];
+    const entry = countryEntries[index];
+    if (
+      regexTest(entry.regex, name) &&
+      !isCountryCodeShadowedByLabels(entry, route, tags)
+    ) {
+      return entry;
     }
   }
   return null;
+}
+
+function isCountryCodeShadowedByLabels(country, route, tags) {
+  if (country.inputType !== "code") {
+    return false;
+  }
+
+  const labels = [];
+  collectFieldValues(labels, route);
+  collectFieldValues(labels, tags);
+  return labels.indexOf(country.input) !== -1;
 }
 
 // 按 format 组装标准字段，字段为空时跳过，不留下多余分隔符。
@@ -917,7 +1105,7 @@ function renderMagneticToken(token, fields) {
   token.template.replace(
     /\[\{([A-Za-z][A-Za-z0-9_]*)\}\]|\{([A-Za-z][A-Za-z0-9_]*)\}/g,
     function collect(match, wrappedFieldName, fieldName) {
-      collectFieldValues(values, fields[wrappedFieldName || fieldName]);
+      collectUniqueFieldValues(values, fields[wrappedFieldName || fieldName]);
       return match;
     }
   );
@@ -945,10 +1133,37 @@ function collectFieldValues(result, value) {
   }
 }
 
+function collectUniqueFieldValues(result, value) {
+  if (Array.isArray(value)) {
+    value.forEach(function collectNested(item) {
+      collectUniqueFieldValues(result, item);
+    });
+    return;
+  }
+
+  if (!isEmptyField(value)) {
+    pushUnique(result, String(value));
+  }
+}
+
 function pushUnique(list, value) {
   if (value !== "" && list.indexOf(value) === -1) {
     list.push(value);
   }
+}
+
+function pruneContainedValues(values) {
+  return values.filter(function keepValue(value, index) {
+    const current = String(value);
+    return !values.some(function hasLongerValue(other, otherIndex) {
+      const candidate = String(other);
+      return (
+        otherIndex !== index &&
+        candidate.length > current.length &&
+        candidate.indexOf(current) !== -1
+      );
+    });
+  });
 }
 
 function addFormatValueParts(parts, fieldName, value) {
@@ -1316,7 +1531,7 @@ function buildKeywordRegex(keywords) {
       .sort(function sortByLength(a, b) {
         return String(b).length - String(a).length;
       })
-      .map(escapeRegex)
+      .map(keywordToRegexSource)
       .join("|"),
     "i"
   );
@@ -1344,6 +1559,20 @@ function compileRuleRegex(rule) {
     ? [rule.match]
     : [];
   return match.length ? buildKeywordRegex(match) : /a^/;
+}
+
+function buildLiteralRuleRegex(value) {
+  const text = stringify(value);
+  return text ? new RegExp(keywordToRegexSource(text), "i") : /a^/;
+}
+
+function keywordToRegexSource(value) {
+  const text = stringify(value);
+  const source = escapeRegex(text).replace(/\s+/g, "[\\s-]*");
+  if (/[A-Za-z0-9]/.test(text) && !/[\u4e00-\u9fff]/.test(text)) {
+    return "(^|[^A-Za-z0-9])" + source + "(?=$|[^A-Za-z0-9])";
+  }
+  return source;
 }
 
 function escapeRegex(value) {
